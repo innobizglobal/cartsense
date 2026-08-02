@@ -29,6 +29,10 @@ android {
             // This installable beta is release-optimized and debug-signed.
             // Production store distribution should use an Innobiz release key.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
