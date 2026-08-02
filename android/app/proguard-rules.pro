@@ -1,7 +1,2 @@
-# CartSense uses only TextRecognitionScript.latin. The Flutter ML Kit bridge
-# references the optional recognizers, but their large language models are
-# intentionally not packaged in this private on-device build.
--dontwarn com.google.mlkit.vision.text.chinese.**
--dontwarn com.google.mlkit.vision.text.devanagari.**
--dontwarn com.google.mlkit.vision.text.japanese.**
--dontwarn com.google.mlkit.vision.text.korean.**
+# The CartSense Android channel directly references only ML Kit's bundled
+# Latin recognizer, so optional script packages are not required.

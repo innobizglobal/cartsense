@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'demo_receipt.dart';
 import 'models/receipt.dart';
@@ -91,7 +92,9 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         final message = error is FormatException
             ? error.message.toString()
-            : 'The bill could not be read. Please try another photo.';
+            : error is PlatformException
+                ? 'On-device reader error ${error.code}: ${error.message ?? 'unknown error'}'
+                : 'The bill could not be read. Please try another photo.';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
         );
