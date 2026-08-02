@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeReceipt } from "../lib/receipt-ai";
+import { imageType, normalizeReceipt } from "../lib/receipt-ai";
 import { GET as health } from "../app/api/health/route";
 
 test("removes payment metadata and refuses a false total match", () => {
@@ -37,4 +37,13 @@ test("health route returns service status", async () => {
     service: "CartSense AI Receipt Service",
     status: "ok",
   });
+});
+
+test("recognizes Android uploads with a generic content type", async () => {
+  const jpeg = new File(
+    [new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])],
+    "blob",
+    { type: "application/octet-stream" },
+  );
+  assert.equal(await imageType(jpeg), "image/jpeg");
 });

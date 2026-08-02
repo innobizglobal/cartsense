@@ -22,6 +22,14 @@ void main() {
       expect(request.url.path, '/api/receipt');
       expect(request.headers['x-cartsense-device'], isNotEmpty);
       expect(request.bodyBytes, isNotEmpty);
+      expect(
+        request.headers['content-type'],
+        contains('multipart/form-data'),
+      );
+      expect(
+        latin1.decode(request.bodyBytes),
+        contains('content-type: image/jpeg'),
+      );
       return http.Response(
         jsonEncode({
           'receipt': {

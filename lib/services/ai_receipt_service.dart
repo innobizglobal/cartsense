@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/receipt.dart';
@@ -43,12 +44,13 @@ class AiReceiptService {
     final request = http.MultipartRequest('POST', Uri.parse(endpoint));
     request.headers.addAll({
       'x-cartsense-device': await _deviceId(),
-      'x-cartsense-client': 'android/0.4.0',
+      'x-cartsense-client': 'android/0.4.1',
     });
     request.files.add(await http.MultipartFile.fromPath(
       'receipt',
       uploadImage.path,
       filename: 'receipt${_extensionFor(uploadImage.path)}',
+      contentType: _mediaTypeFor(uploadImage.path),
     ));
 
     late http.StreamedResponse streamed;
@@ -162,5 +164,12 @@ class AiReceiptService {
     if (lower.endsWith('.png')) return '.png';
     if (lower.endsWith('.webp')) return '.webp';
     return '.jpg';
+  }
+
+  MediaType _mediaTypeFor(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.png')) return MediaType('image', 'png');
+    if (lower.endsWith('.webp')) return MediaType('image', 'webp');
+    return MediaType('image', 'jpeg');
   }
 }

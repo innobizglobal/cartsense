@@ -1,18 +1,7 @@
 import { env } from "cloudflare:workers";
-import { extractResponseText, normalizeReceipt, receiptJsonSchema, receiptPrompt } from "@/lib/receipt-ai";
+import { extractResponseText, imageType, normalizeReceipt, receiptJsonSchema, receiptPrompt } from "@/lib/receipt-ai";
 
 const maximumImageBytes = 12 * 1024 * 1024;
-const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-
-function imageType(file: File) {
-  if (allowedTypes.has(file.type)) return file.type;
-  const lower = file.name.toLowerCase();
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  return null;
-}
-
 interface RuntimeEnv {
   DB: D1Database;
   OPENAI_API_KEY?: string;
@@ -78,7 +67,7 @@ export async function POST(request: Request) {
   if (!(image instanceof File)) {
     return errorResponse("No receipt photo was supplied.", 400, "IMAGE_REQUIRED");
   }
-  const effectiveImageType = imageType(image);
+  const effectiveImageType = await imageType(image);
   if (effectiveImageType == null) {
     return errorResponse("Use a JPEG, PNG or WebP receipt photo.", 415, "IMAGE_TYPE_UNSUPPORTED");
   }
