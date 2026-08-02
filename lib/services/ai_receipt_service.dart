@@ -44,7 +44,7 @@ class AiReceiptService {
     final request = http.MultipartRequest('POST', Uri.parse(endpoint));
     request.headers.addAll({
       'x-cartsense-device': await _deviceId(),
-      'x-cartsense-client': 'android/0.6.0',
+      'x-cartsense-client': 'android/0.6.1',
     });
     request.files.add(await http.MultipartFile.fromPath(
       'receipt',

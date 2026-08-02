@@ -114,3 +114,32 @@ test("does not add GST twice when product values already equal the payable total
   assert.match(receipt.warnings.join(" "), /not added twice/i);
   assert.doesNotMatch(receipt.warnings.join(" "), /differs from the printed total/i);
 });
+
+test("preserves AI grocery categories in the mobile receipt", () => {
+  const receipt = normalizeReceipt({
+    store: "D-Mart",
+    purchasedAt: "2026-08-02",
+    currency: "INR",
+    printedTotal: 344,
+    printedItemCount: 1,
+    printedQuantityTotal: 1,
+    taxTotal: 0,
+    billDiscount: 0,
+    otherCharges: 0,
+    overallConfidence: 0.95,
+    warnings: [],
+    items: [
+      {
+        name: "WHISPER BINDAZZ",
+        category: "Sanitary care",
+        quantity: 1,
+        unitPrice: 344,
+        lineTotal: 344,
+        discount: 0,
+        confidence: 0.95,
+      },
+    ],
+  });
+
+  assert.equal(receipt.items[0].category, "Sanitary care");
+});

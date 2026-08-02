@@ -46,56 +46,101 @@ class ReceiptItem {
 class GroceryCategory {
   static const produce = 'Fruit & vegetables';
   static const dairy = 'Dairy & chilled';
+  static const cookingOils = 'Cooking oils';
+  static const teaCoffee = 'Tea & coffee';
   static const pantry = 'Pantry staples';
   static const beverages = 'Beverages';
   static const snacks = 'Snacks & sweets';
+  static const breakfastBakery = 'Breakfast & bakery';
+  static const frozenReady = 'Frozen & ready foods';
   static const household = 'Household';
   static const personalCare = 'Personal care';
+  static const sanitaryCare = 'Sanitary care';
+  static const babyCare = 'Baby care';
   static const other = 'Other';
 
   static const values = [
     produce,
     dairy,
+    cookingOils,
+    teaCoffee,
     pantry,
     beverages,
     snacks,
+    breakfastBakery,
+    frozenReady,
     household,
     personalCare,
+    sanitaryCare,
+    babyCare,
     other,
   ];
 
   static String infer(String productName) {
-    final name = productName.toLowerCase();
-    if (RegExp(r'\b(milk|paneer|curd|yogurt|cheese|butter|ghee|cream)\b')
+    final name =
+        productName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+    if (RegExp(
+            r'\b(sanitary|whisper|wisper|nisper|bindazz|stayfree|stay free|sofy|kotex|carefree|niine|maxi pad|period pad|panty liner|tampon)\b')
+        .hasMatch(name)) {
+      return sanitaryCare;
+    }
+    if (RegExp(
+            r'\b(baby|diaper|diapers|pampers|mamy poko|huggies|cerelac|lactogen|nan pro|johnson baby)\b')
+        .hasMatch(name)) {
+      return babyCare;
+    }
+    if (RegExp(
+            r'\b(tetley|tetely|tetly|tea|chai|tata tea|red label|taj mahal|wagh bakri|society tea|three roses|3 roses|brook bond|lipton|coffee|nescafe|bru)\b')
+        .hasMatch(name)) {
+      return teaCoffee;
+    }
+    if (RegExp(
+            r'\b(gold drop|gold winner|sun drop|sundrop|fortune|freedom|saffola|dhara|gemini|sunflower|groundnut|mustard oil|rice bran|soyabean oil|cooking oil|edible oil|refined oil|olive oil|coconut oil)\b')
+        .hasMatch(name)) {
+      return cookingOils;
+    }
+    if (RegExp(
+            r'\b(milk|paneer|curd|yogurt|yoghurt|cheese|butter|ghee|cream|lassi|buttermilk|heritage|amul|nandini|mother dairy)\b')
         .hasMatch(name)) {
       return dairy;
     }
     if (RegExp(
-            r'\b(apple|banana|mango|orange|grape|tomato|onion|potato|carrot|vegetable|fruit)\b')
+            r'\b(apple|banana|mango|orange|grape|guava|papaya|watermelon|tomato|onion|potato|carrot|cabbage|beans|vegetable|fruit|coriander|ginger|garlic|lemon)\b')
         .hasMatch(name)) {
       return produce;
     }
     if (RegExp(
-            r'\b(rice|atta|flour|dal|pulse|oil|salt|sugar|masala|spice|ragi)\b')
+            r'\b(bread|bun|rusk|cake|corn flakes|cornflakes|oats|muesli|cereal|idli batter|dosa batter|jam|honey|peanut butter)\b')
+        .hasMatch(name)) {
+      return breakfastBakery;
+    }
+    if (RegExp(
+            r'\b(frozen|ready to eat|instant noodles|noodles|pasta|vermicelli|soup|maggie|maggi|yippee|paratha|nuggets|fries)\b')
+        .hasMatch(name)) {
+      return frozenReady;
+    }
+    if (RegExp(
+            r'\b(rice|atta|flour|dal|dhal|pulse|salt|sugar|jaggery|masala|spice|ragi|sooji|suji|poha|besan|maida|rajma|chana|moong|toor|urad)\b')
         .hasMatch(name)) {
       return pantry;
     }
-    if (RegExp(r'\b(tea|coffee|juice|water|cola|limca|thums|drink)\b')
+    if (RegExp(
+            r'\b(juice|water|soda|cola|limca|thums|sprite|fanta|maaza|drink|squash|energy drink)\b')
         .hasMatch(name)) {
       return beverages;
     }
     if (RegExp(
-            r'\b(biscuit|cookie|chips|chocolate|candy|sweet|namkeen|snack)\b')
+            r'\b(biscuit|cookie|chips|chocolate|candy|sweet|namkeen|snack|wafer|mixture|kurkure|lays|hide seek|oreo|bourbon)\b')
         .hasMatch(name)) {
       return snacks;
     }
     if (RegExp(
-            r'\b(detergent|clean|dish|match|safe|floor|toilet|tissue|ariel|vim|comfort)\b')
+            r'\b(detergent|clean|dish|match|safe|floor|toilet|tissue|ariel|vim|comfort|surf excel|rin|harpic|lizol|phenyl|garbage bag|foil|mosquito|good knight)\b')
         .hasMatch(name)) {
       return household;
     }
     if (RegExp(
-            r'\b(soap|shampoo|tooth|paste|brush|cream|lotion|dove|deodorant)\b')
+            r'\b(soap|shampoo|conditioner|tooth|paste|brush|face wash|cream|lotion|dove|deodorant|deo|razor|shaving|hair oil|hand wash|sanitizer)\b')
         .hasMatch(name)) {
       return personalCare;
     }

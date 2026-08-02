@@ -5,11 +5,34 @@ import '../models/receipt.dart';
 
 class ReceiptStore {
   static const _key = 'cartsense_receipts_v1';
+  static const _categoryRulesKey = 'cartsense_category_rules_version';
+  static const _categoryRulesVersion = 2;
 
   Future<List<Receipt>> load() async {
     final prefs = await SharedPreferences.getInstance();
-    return (prefs.getStringList(_key) ?? []).map(Receipt.decode).toList()
-      ..sort((a, b) => b.purchasedAt.compareTo(a.purchasedAt));
+    final receipts =
+        (prefs.getStringList(_key) ?? []).map(Receipt.decode).toList();
+    if ((prefs.getInt(_categoryRulesKey) ?? 0) < _categoryRulesVersion) {
+      var changed = false;
+      for (final receipt in receipts) {
+        for (final item in receipt.items) {
+          if (item.category != GroceryCategory.other) continue;
+          final inferred = GroceryCategory.infer(item.name);
+          if (inferred != GroceryCategory.other) {
+            item.category = inferred;
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        await prefs.setStringList(
+          _key,
+          receipts.map((receipt) => receipt.encode()).toList(),
+        );
+      }
+      await prefs.setInt(_categoryRulesKey, _categoryRulesVersion);
+    }
+    return receipts..sort((a, b) => b.purchasedAt.compareTo(a.purchasedAt));
   }
 
   Future<void> save(Receipt receipt) async {

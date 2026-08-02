@@ -32,6 +32,7 @@ export const receiptJsonSchema = {
         additionalProperties: false,
         required: [
           "name",
+          "category",
           "quantity",
           "unitPrice",
           "lineTotal",
@@ -40,6 +41,25 @@ export const receiptJsonSchema = {
         ],
         properties: {
           name: { type: "string" },
+          category: {
+            type: "string",
+            enum: [
+              "Fruit & vegetables",
+              "Dairy & chilled",
+              "Cooking oils",
+              "Tea & coffee",
+              "Pantry staples",
+              "Beverages",
+              "Snacks & sweets",
+              "Breakfast & bakery",
+              "Frozen & ready foods",
+              "Household",
+              "Personal care",
+              "Sanitary care",
+              "Baby care",
+              "Other",
+            ],
+          },
           quantity: { type: "number" },
           unitPrice: { type: "number" },
           lineTotal: { type: "number" },
@@ -58,6 +78,7 @@ export const receiptPrompt = `You are an expert grocery receipt analyst. Read th
 Rules:
 - Extract product rows only. Never put headers, addresses, survey text, GST summaries, tax rows, payment methods, "amount received from customer", change, savings messages, bill numbers, barcodes, or totals into items.
 - Preserve visible product names. Correct obvious OCR letter mistakes only when the printed word is visually supported; do not invent brands or products.
+- Classify each product into exactly one category: Fruit & vegetables, Dairy & chilled, Cooking oils, Tea & coffee, Pantry staples, Beverages, Snacks & sweets, Breakfast & bakery, Frozen & ready foods, Household, Personal care, Sanitary care, Baby care, or Other. Use Other only when the product cannot reasonably fit another category. Sanitary pads and brands such as Whisper belong to Sanitary care; Tetley and other teas belong to Tea & coffee; edible oils and brands such as Gold Drop belong to Cooking oils.
 - Use the quantity, unit rate and line value from the same printed row. If a receipt prints tax separately, lineTotal is the pre-tax line value and taxTotal is the separately added tax. If tax is already included in item values, set taxTotal to 0.
 - printedTotal is the final amount payable/received, not a subtotal, tax-group amount, savings amount, or payment identifier.
 - billDiscount is only a bill-level discount not already subtracted from item line totals. otherCharges contains separately added non-tax charges.
@@ -72,6 +93,7 @@ export function receiptAuditPrompt(firstPass: ReturnType<typeof normalizeReceipt
 Audit method:
 - Re-read the product table row by row using the printed columns and their horizontal alignment. Do not trust the first pass when pixels disagree.
 - Verify every product name, quantity, unit rate, discount and line value against the same physical row.
+- Verify that each product category fits the product; use Other only when no listed grocery category reasonably applies.
 - Use printed item count and total quantity as cross-checks, but never invent a missing row merely to force a match.
 - Exclude headers, addresses, survey text, GST summaries, tax rows, payment lines, amount received, change, savings text, totals and barcodes.
 - Verify the final payable total separately. Recheck tax, bill discount and other charges, then test the arithmetic.
@@ -125,6 +147,7 @@ export function normalizeReceipt(raw: UnknownRecord) {
     .filter((value): value is UnknownRecord => !!value && typeof value === "object")
     .map((item) => ({
       name: String(item.name ?? "").trim(),
+      category: String(item.category ?? "Other").trim() || "Other",
       quantity: Math.max(0, finiteNumber(item.quantity, 1)),
       unitPrice: Math.max(0, finiteNumber(item.unitPrice)),
       parsedLineTotal: Math.max(0, finiteNumber(item.lineTotal)),

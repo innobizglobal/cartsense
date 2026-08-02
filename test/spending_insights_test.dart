@@ -61,5 +61,21 @@ void main() {
     expect(GroceryCategory.infer('Heritage Paneer'), GroceryCategory.dairy);
     expect(GroceryCategory.infer('VIM Dish Wash'), GroceryCategory.household);
     expect(GroceryCategory.infer('Thums Up 750ml'), GroceryCategory.beverages);
+    expect(
+      GroceryCategory.infer('WHISPER BINDAZZ pads'),
+      GroceryCategory.sanitaryCare,
+    );
+    expect(
+      GroceryCategory.infer('Tetely Classic 250g'),
+      GroceryCategory.teaCoffee,
+    );
+    expect(
+      GroceryCategory.infer('Gold Drop Refined Oil 1L'),
+      GroceryCategory.cookingOils,
+    );
+    expect(
+      GroceryCategory.infer('Freedom Sunfl 1lt'),
+      GroceryCategory.cookingOils,
+    );
   });
 }
