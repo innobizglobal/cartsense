@@ -10,6 +10,11 @@ class ShoppingItem {
     required this.bestUnitPrice,
     required this.bestStore,
     required this.createdAt,
+    this.latestStore = '',
+    this.note = '',
+    this.remindAt,
+    this.completedAt,
+    this.sourceReceiptId,
     this.checked = false,
   });
 
@@ -20,12 +25,20 @@ class ShoppingItem {
   double expectedUnitPrice;
   double bestUnitPrice;
   String bestStore;
+  String latestStore;
+  String note;
+  DateTime? remindAt;
+  DateTime? completedAt;
+  String? sourceReceiptId;
   DateTime createdAt;
   bool checked;
 
   double get estimatedTotal => quantity * expectedUnitPrice;
   double get possibleSaving => ((expectedUnitPrice - bestUnitPrice) * quantity)
       .clamp(0, double.infinity);
+  bool isReminderDue(DateTime now) =>
+      !checked && remindAt != null && !remindAt!.isAfter(now);
+  int get notificationId => id.hashCode & 0x7fffffff;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -35,6 +48,11 @@ class ShoppingItem {
         'expectedUnitPrice': expectedUnitPrice,
         'bestUnitPrice': bestUnitPrice,
         'bestStore': bestStore,
+        'latestStore': latestStore,
+        'note': note,
+        'remindAt': remindAt?.toIso8601String(),
+        'completedAt': completedAt?.toIso8601String(),
+        'sourceReceiptId': sourceReceiptId,
         'createdAt': createdAt.toIso8601String(),
         'checked': checked,
       };
@@ -47,6 +65,11 @@ class ShoppingItem {
         expectedUnitPrice: (json['expectedUnitPrice'] as num?)?.toDouble() ?? 0,
         bestUnitPrice: (json['bestUnitPrice'] as num?)?.toDouble() ?? 0,
         bestStore: json['bestStore']?.toString() ?? '',
+        latestStore: json['latestStore']?.toString() ?? '',
+        note: json['note']?.toString() ?? '',
+        remindAt: DateTime.tryParse(json['remindAt']?.toString() ?? ''),
+        completedAt: DateTime.tryParse(json['completedAt']?.toString() ?? ''),
+        sourceReceiptId: json['sourceReceiptId']?.toString(),
         createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
             DateTime.now(),
         checked: json['checked'] == true,

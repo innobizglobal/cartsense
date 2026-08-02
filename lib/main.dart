@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_receipt.dart';
 import 'models/receipt.dart';
+import 'models/shopping_item.dart';
 import 'models/spending_insights.dart';
 import 'screens/insights_screen.dart';
 import 'screens/shopping_list_screen.dart';
@@ -12,8 +13,14 @@ import 'services/receipt_export.dart';
 import 'services/ai_receipt_service.dart';
 import 'services/receipt_parser.dart';
 import 'services/receipt_store.dart';
+import 'services/shopping_reminder_service.dart';
+import 'services/shopping_list_store.dart';
 
-void main() => runApp(const CartSenseApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ShoppingReminderService.instance.initialize();
+  runApp(const CartSenseApp());
+}
 
 const green = Color(0xFF174C3C);
 const lime = Color(0xFFB8E05A);
@@ -596,6 +603,30 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     if (index >= 0) await _editItem(index);
   }
 
+  Future<void> _addToShoppingList(ReceiptItem item) async {
+    final unitPrice = item.unitPrice > 0
+        ? item.unitPrice
+        : item.quantity > 0
+            ? item.total / item.quantity
+            : item.total;
+    await ShoppingListStore().add(ShoppingItem(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      name: item.name,
+      quantity: 1,
+      category: item.category,
+      expectedUnitPrice: unitPrice,
+      bestUnitPrice: unitPrice,
+      bestStore: receipt.store,
+      latestStore: receipt.store,
+      sourceReceiptId: receipt.id,
+      createdAt: DateTime.now(),
+    ));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${item.name} added to your shopping list.')),
+    );
+  }
+
   Future<void> _editDetails() async {
     final store = TextEditingController(text: receipt.store);
     final date = TextEditingController(
@@ -903,7 +934,25 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                   subtitle: Text(
                       '${item.quantity.g} × ₹${item.unitPrice.toStringAsFixed(2)}  •  Discount ₹${item.discount.toStringAsFixed(2)}\n${item.category}${item.needsReview ? '  •  REVIEW' : ''}'),
                   isThreeLine: true,
-                  trailing: Text('₹${item.total.toStringAsFixed(2)}'),
+                  trailing: SizedBox(
+                    width: 116,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '₹${item.total.toStringAsFixed(2)}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Add to shopping list',
+                          onPressed: () => _addToShoppingList(item),
+                          icon: const Icon(Icons.add_shopping_cart_outlined),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               );
             }),
