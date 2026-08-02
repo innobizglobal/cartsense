@@ -4,10 +4,12 @@ import '../models/shopping_item.dart';
 import '../models/shopping_reconciliation.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
+import '../theme/cartsense_theme.dart';
+import '../widgets/category_icon.dart';
 
-const _green = Color(0xFF174C3C);
-const _lime = Color(0xFFB8E05A);
-const _ivory = Color(0xFFFFFBF2);
+const _green = CartSenseColors.primary;
+const _lime = CartSenseColors.accent;
+const _ivory = CartSenseColors.background;
 
 class ShoppingReconciliationScreen extends StatefulWidget {
   const ShoppingReconciliationScreen({
@@ -136,10 +138,12 @@ class _ShoppingReconciliationScreenState
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: _ivory,
-        appBar: AppBar(title: const Text('Reconcile shopping trip')),
+        appBar: AppBar(title: const Text('Review this trip')),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 120),
           children: [
+            const _TripProgress(),
+            const SizedBox(height: 14),
             Card(
               color: _green,
               child: Padding(
@@ -181,7 +185,7 @@ class _ShoppingReconciliationScreenState
             ),
             const SizedBox(height: 12),
             const Card(
-              color: Color(0xFFF0F6F2),
+              color: CartSenseColors.surfaceMuted,
               child: Padding(
                 padding: EdgeInsets.all(16),
                 child: Row(
@@ -191,7 +195,7 @@ class _ShoppingReconciliationScreenState
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'CartSense matched your plan with the receipt. Review the suggestions and tap Change if a product is incorrect.',
+                        'We matched your saved list with this receipt. Check the suggestions before finishing.',
                       ),
                     ),
                   ],
@@ -207,9 +211,9 @@ class _ShoppingReconciliationScreenState
               ...unplannedRows.map((index) {
                 final item = widget.receipt.items[index];
                 return Card(
-                  color: const Color(0xFFFFF3CD),
+                  color: CartSenseColors.warning,
                   child: ListTile(
-                    leading: const Icon(Icons.add_circle_outline),
+                    leading: CategoryAvatar(category: item.category),
                     title: Text(
                       item.name,
                       style: const TextStyle(fontWeight: FontWeight.w800),
@@ -269,9 +273,9 @@ class _ShoppingReconciliationScreenState
                 : '₹${difference.abs().toStringAsFixed(2)} under estimate';
     return Card(
       color: purchased == null
-          ? const Color(0xFFFFF3CD)
+          ? CartSenseColors.warning
           : confidence < .75
-              ? const Color(0xFFFFF3CD)
+              ? CartSenseColors.warning
               : Colors.white,
       child: ListTile(
         leading: CircleAvatar(
@@ -329,6 +333,69 @@ class _ShoppingReconciliationScreenState
           ],
         ),
       );
+}
+
+class _TripProgress extends StatelessWidget {
+  const _TripProgress();
+
+  @override
+  Widget build(BuildContext context) {
+    const steps = [
+      (Icons.format_list_bulleted, 'Plan'),
+      (Icons.shopping_cart_outlined, 'Shop'),
+      (Icons.document_scanner_outlined, 'Scan'),
+      (Icons.fact_check_outlined, 'Review'),
+    ];
+    return Row(
+      children: List.generate(steps.length, (index) {
+        final step = steps[index];
+        return Expanded(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: index == steps.length - 1
+                            ? CartSenseColors.primary
+                            : CartSenseColors.success,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        index == steps.length - 1 ? step.$1 : Icons.check,
+                        size: 18,
+                        color: index == steps.length - 1
+                            ? Colors.white
+                            : CartSenseColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      step.$2,
+                      style: TextStyle(
+                        color: index == steps.length - 1
+                            ? CartSenseColors.primary
+                            : CartSenseColors.textMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (index < steps.length - 1)
+                const Expanded(
+                  child: Divider(color: CartSenseColors.primary),
+                ),
+            ],
+          ),
+        );
+      }),
+    );
+  }
 }
 
 String _quantity(double value) => value == value.roundToDouble()

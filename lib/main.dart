@@ -16,12 +16,23 @@ import 'services/ai_receipt_service.dart';
 import 'services/receipt_parser.dart';
 import 'services/receipt_store.dart';
 import 'services/shopping_list_store.dart';
+import 'theme/cartsense_theme.dart';
+import 'widgets/category_icon.dart';
 
-void main() => runApp(const CartSenseApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark,
+    systemNavigationBarColor: CartSenseColors.surface,
+    systemNavigationBarIconBrightness: Brightness.dark,
+  ));
+  runApp(const CartSenseApp());
+}
 
-const green = Color(0xFF174C3C);
-const lime = Color(0xFFB8E05A);
-const ivory = Color(0xFFFFFBF2);
+const green = CartSenseColors.primary;
+const lime = CartSenseColors.accent;
+const ivory = CartSenseColors.background;
 
 class CartSenseApp extends StatelessWidget {
   const CartSenseApp({super.key});
@@ -29,16 +40,7 @@ class CartSenseApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'CartSense',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: green),
-          scaffoldBackgroundColor: ivory,
-          useMaterial3: true,
-          appBarTheme: const AppBarTheme(
-            backgroundColor: ivory,
-            foregroundColor: green,
-            elevation: 0,
-          ),
-        ),
+        theme: buildCartSenseTheme(),
         home: const HomeScreen(),
       );
 }
@@ -277,41 +279,58 @@ class _HomeScreenState extends State<HomeScreen> {
     if (scanNow == true && mounted) await _showCheckoutScanOptions();
   }
 
-  Future<void> _deleteReceipt(Receipt receipt) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete saved bill?'),
-        content: Text(
-          '${receipt.store} will be removed from this device. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await store.delete(receipt.id);
-    await _refresh();
-  }
-
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: const Text('CartSense',
-              style: TextStyle(fontWeight: FontWeight.w800)),
-          actions: const [
-            Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: Chip(label: Text('AI + PRIVATE')),
+          toolbarHeight: 72,
+          title: const Row(
+            children: [
+              _BrandMark(),
+              SizedBox(width: 11),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('CartSense'),
+                  Text(
+                    'Smart grocery companion',
+                    style: TextStyle(
+                      color: CartSenseColors.textMuted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            PopupMenuButton<String>(
+              tooltip: 'More options',
+              onSelected: (value) {
+                if (value == 'private') {
+                  _showPrivateScanOptions();
+                } else if (value == 'demo') {
+                  _open(createDemoReceipt());
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'private',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.lock_outline),
+                    title: Text('Private scan'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'demo',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.science_outlined),
+                    title: Text('Open sample receipt'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -347,94 +366,95 @@ class _HomeScreenState extends State<HomeScreen> {
               )
             : SafeArea(
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(22),
                       decoration: BoxDecoration(
-                        color: green,
-                        borderRadius: BorderRadius.circular(28),
+                        gradient: const LinearGradient(
+                          colors: [CartSenseColors.primaryDark, green],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(24),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                              'Turn every grocery bill\ninto useful savings.',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 30,
-                                  height: 1.12,
-                                  fontWeight: FontWeight.w800)),
-                          const SizedBox(height: 12),
-                          Text(
-                              'Use accurate AI recognition for difficult receipts, with private on-device scanning whenever you prefer.',
-                              style: TextStyle(
-                                  color: Colors.white.withValues(alpha: .82),
-                                  fontSize: 16)),
-                          const SizedBox(height: 24),
+                          const Row(
+                            children: [
+                              _HeroIcon(),
+                              SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Scan a grocery receipt',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 22,
+                                        height: 1.1,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    SizedBox(height: 6),
+                                    Text(
+                                      'Save products, prices and spending automatically.',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.icon(
                               style: FilledButton.styleFrom(
                                   backgroundColor: lime,
                                   foregroundColor: green,
-                                  padding: const EdgeInsets.all(17)),
-                              onPressed: () => _capture(
-                                ImageSource.camera,
-                                aiEnhanced: true,
-                              ),
-                              icon: const Icon(Icons.document_scanner_outlined),
-                              label: const Text('AI scan grocery bill',
+                                  padding: const EdgeInsets.all(16)),
+                              onPressed: _showCheckoutScanOptions,
+                              icon: const Icon(Icons.document_scanner),
+                              label: const Text('Scan receipt',
                                   style:
                                       TextStyle(fontWeight: FontWeight.w800)),
                             ),
                           ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: const BorderSide(color: Colors.white38),
-                                  padding: const EdgeInsets.all(16)),
-                              onPressed: () => _capture(
-                                ImageSource.gallery,
-                                aiEnhanced: true,
+                          const SizedBox(height: 12),
+                          const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.shield_outlined,
+                                  size: 16, color: Colors.white70),
+                              SizedBox(width: 6),
+                              Text(
+                                'You choose AI or private on-device scan',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
                               ),
-                              icon: const Icon(Icons.photo_library_outlined),
-                              label: const Text('AI scan from gallery'),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          SizedBox(
-                            width: double.infinity,
-                            child: TextButton.icon(
-                              style: TextButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.all(13),
-                              ),
-                              onPressed: _showPrivateScanOptions,
-                              icon: const Icon(Icons.lock_outline),
-                              label: const Text('Use private on-device reader'),
-                            ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 18),
-                    OutlinedButton.icon(
-                      onPressed: () => _open(createDemoReceipt()),
-                      icon: const Icon(Icons.play_circle_outline),
-                      label: const Text('Try a complete demo bill'),
-                    ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 22),
+                    const _HomeSectionTitle('Your shortcuts'),
+                    const SizedBox(height: 9),
                     Row(
                       children: [
                         Expanded(
                           child: _HomeFeatureButton(
                             icon: Icons.savings_outlined,
-                            title: 'Savings\ninsights',
-                            subtitle: 'Budget & prices',
+                            title: 'Insights',
+                            subtitle: 'Budget and price trends',
                             onTap: _openInsights,
                           ),
                         ),
@@ -442,10 +462,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         Expanded(
                           child: _HomeFeatureButton(
                             icon: Icons.shopping_cart_outlined,
-                            title: 'Shopping\nassistant',
+                            title: 'Shopping list',
                             subtitle: activeShoppingCount == 0
-                                ? 'Saved on this device'
-                                : '$activeShoppingCount to buy · saved',
+                                ? 'Plan your next trip'
+                                : '$activeShoppingCount products to buy',
                             onTap: _openShoppingAssistant,
                           ),
                         ),
@@ -454,7 +474,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (monthlyInsights.billCount > 0) ...[
                       const SizedBox(height: 18),
                       Card(
-                        color: const Color(0xFFF0F6F2),
+                        color: CartSenseColors.surfaceMuted,
                         child: Padding(
                           padding: const EdgeInsets.all(18),
                           child: Column(
@@ -496,12 +516,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 28),
-                    Text('Recent bills',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 26),
+                    _HomeSectionTitle(
+                      'Recent receipts',
+                      trailing:
+                          history.isEmpty ? null : '${history.length} saved',
+                    ),
                     const SizedBox(height: 10),
                     if (history.isNotEmpty) ...[
                       TextField(
@@ -520,17 +540,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                   },
                                   icon: const Icon(Icons.close),
                                 ),
-                          border: const OutlineInputBorder(),
                         ),
                       ),
                       const SizedBox(height: 10),
                     ],
                     if (history.isEmpty)
-                      const Card(
-                          child: Padding(
-                              padding: EdgeInsets.all(20),
-                              child: Text(
-                                  'No saved bills yet. Scan one or open the demo.')))
+                      const _HomeEmptyState()
                     else if (filteredHistory.isEmpty)
                       const Card(
                         child: Padding(
@@ -541,42 +556,196 @@ class _HomeScreenState extends State<HomeScreen> {
                     else
                       ...filteredHistory.map((receipt) => Card(
                             child: ListTile(
+                              contentPadding: const EdgeInsets.fromLTRB(
+                                14,
+                                7,
+                                10,
+                                7,
+                              ),
                               onTap: () => _open(receipt),
-                              leading: const CircleAvatar(
-                                  backgroundColor: lime,
-                                  child:
-                                      Icon(Icons.receipt_long, color: green)),
-                              title: Text(receipt.store,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700)),
-                              subtitle: Text(
-                                  '${receipt.items.length} items • ${receipt.purchasedAt.day}/${receipt.purchasedAt.month}/${receipt.purchasedAt.year}'),
-                              trailing: SizedBox(
-                                width: 116,
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        '₹${receipt.calculatedTotal.toStringAsFixed(2)}',
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w800),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Delete bill',
-                                      onPressed: () => _deleteReceipt(receipt),
-                                      icon: const Icon(Icons.delete_outline),
-                                    ),
-                                  ],
+                              leading: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: CartSenseColors.success,
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
+                                child: const Icon(
+                                  Icons.receipt_long_outlined,
+                                  color: green,
+                                ),
+                              ),
+                              title: Text(
+                                receipt.store,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              subtitle: Text(
+                                '${receipt.items.length} products · ${_shortDate(receipt.purchasedAt)}${receipt.shoppingTrip == null ? '' : ' · reconciled'}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '₹${receipt.calculatedTotal.toStringAsFixed(0)}',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 3),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    color: CartSenseColors.textMuted,
+                                  ),
+                                ],
                               ),
                             ),
                           )),
                   ],
                 ),
               ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: 0,
+          onDestinationSelected: (index) {
+            if (index == 1) {
+              _showCheckoutScanOptions();
+            } else if (index == 2) {
+              _openShoppingAssistant();
+            } else if (index == 3) {
+              _openInsights();
+            }
+          },
+          destinations: [
+            const NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Home',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.document_scanner_outlined),
+              selectedIcon: Icon(Icons.document_scanner),
+              label: 'Scan',
+            ),
+            NavigationDestination(
+              icon: Badge(
+                isLabelVisible: activeShoppingCount > 0,
+                label: Text('$activeShoppingCount'),
+                child: const Icon(Icons.shopping_basket_outlined),
+              ),
+              selectedIcon: const Icon(Icons.shopping_basket),
+              label: 'List',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.insights_outlined),
+              selectedIcon: Icon(Icons.insights),
+              label: 'Insights',
+            ),
+          ],
+        ),
+      );
+}
+
+class _BrandMark extends StatelessWidget {
+  const _BrandMark();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: green,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.shopping_bag_outlined,
+            color: Colors.white, size: 21),
+      );
+}
+
+class _HeroIcon extends StatelessWidget {
+  const _HeroIcon();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .12),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Icon(Icons.receipt_long_outlined,
+            color: Colors.white, size: 28),
+      );
+}
+
+class _HomeSectionTitle extends StatelessWidget {
+  const _HomeSectionTitle(this.title, {this.trailing});
+
+  final String title;
+  final String? trailing;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w900),
+            ),
+          ),
+          if (trailing != null)
+            Text(
+              trailing!,
+              style: const TextStyle(
+                color: CartSenseColors.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+        ],
+      );
+}
+
+class _HomeEmptyState extends StatelessWidget {
+  const _HomeEmptyState();
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: Column(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: CartSenseColors.surfaceMuted,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Icon(Icons.receipt_long_outlined,
+                    color: green, size: 30),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'No receipts yet',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Scan your first grocery receipt to start tracking prices and spending.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: CartSenseColors.textMuted),
+              ),
+            ],
+          ),
+        ),
       );
 }
 
@@ -595,38 +764,49 @@ class _HomeFeatureButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-        color: const Color(0xFFF0F6F2),
         margin: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(15),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  backgroundColor: lime,
-                  foregroundColor: green,
-                  child: Icon(icon),
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: CartSenseColors.success,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(icon, color: green),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: green,
-                    fontWeight: FontWeight.w900,
-                    height: 1.05,
-                  ),
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 4),
-                Text(subtitle, style: const TextStyle(fontSize: 12)),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: CartSenseColors.textMuted,
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
               ],
             ),
           ),
         ),
       );
 }
+
+String _shortDate(DateTime date) =>
+    '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
 
 class ReceiptScreen extends StatefulWidget {
   const ReceiptScreen({super.key, required this.receipt});
@@ -652,6 +832,32 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         builder: (_) => ReceiptImageScreen(imagePath: path),
       ),
     );
+  }
+
+  Future<void> _deleteReceipt() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete receipt?'),
+        content: Text(
+          '${receipt.store} and its saved image will be removed from this phone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete receipt'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ReceiptStore().delete(receipt.id);
+    if (mounted) Navigator.pop(context);
   }
 
   Future<void> _reviewNextItem() async {
@@ -703,7 +909,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       if (plannedItems.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
-            'Bill saved. Add products in Shopping assistant to plan your next trip.',
+            'Receipt saved. Add products to your shopping list to plan the next trip.',
           ),
         ));
         return;
@@ -886,7 +1092,65 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(receipt.store)),
+        appBar: AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Receipt details'),
+              Text(
+                receipt.store,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: CartSenseColors.textMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            PopupMenuButton<String>(
+              tooltip: 'Receipt options',
+              onSelected: (value) {
+                if (value == 'image') {
+                  _showOriginalReceipt();
+                } else if (value == 'export') {
+                  ReceiptExport().shareCsv(receipt);
+                } else if (value == 'delete') {
+                  _deleteReceipt();
+                }
+              },
+              itemBuilder: (context) => [
+                if (_hasReceiptImage)
+                  const PopupMenuItem(
+                    value: 'image',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.image_outlined),
+                      title: Text('View receipt image'),
+                    ),
+                  ),
+                const PopupMenuItem(
+                  value: 'export',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.ios_share_outlined),
+                    title: Text('Export receipt'),
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    title: Text('Delete receipt'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -894,8 +1158,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 color: receipt.confidentlyReconciled
-                    ? const Color(0xFFE8F4D7)
-                    : const Color(0xFFFFE8DA),
+                    ? CartSenseColors.success
+                    : CartSenseColors.warning,
                 borderRadius: BorderRadius.circular(18),
               ),
               child: Row(children: [
@@ -908,10 +1172,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 Expanded(
                     child: Text(
                         receipt.confidentlyReconciled
-                            ? 'AI-verified bill total matches'
+                            ? 'Receipt looks good'
                             : receipt.reconciled
-                                ? 'Total matches, but highlighted details need review'
-                                : 'Please review: difference ₹${receipt.difference.abs().toStringAsFixed(2)}',
+                                ? 'Total matches · review highlighted products'
+                                : 'Totals differ by ₹${receipt.difference.abs().toStringAsFixed(2)}',
                         style: const TextStyle(fontWeight: FontWeight.w800))),
               ]),
             ),
@@ -920,17 +1184,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               _tripSummary(trip),
               const SizedBox(height: 8),
             ],
-            if (_hasReceiptImage) ...[
-              OutlinedButton.icon(
-                onPressed: _showOriginalReceipt,
-                icon: const Icon(Icons.image_outlined),
-                label: const Text('View original receipt'),
-              ),
-              const SizedBox(height: 6),
-            ],
             if (receipt.reviewItemCount > 0) ...[
               Card(
-                color: const Color(0xFFFFF3CD),
+                color: CartSenseColors.warning,
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Row(
@@ -956,93 +1212,83 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             OutlinedButton.icon(
               onPressed: _editDetails,
               icon: const Icon(Icons.edit_note_outlined),
-              label: const Text('Edit store, date or printed total'),
+              label: const Text('Edit receipt details'),
             ),
             const SizedBox(height: 6),
             if (receipt.isAiEnhanced) ...[
               Card(
-                color: const Color(0xFFF0F6F2),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.auto_awesome, color: green),
-                          SizedBox(width: 8),
-                          Text(
-                            'AI Enhanced Scan',
-                            style: TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
+                color: CartSenseColors.surfaceMuted,
+                child: ExpansionTile(
+                  leading: const Icon(Icons.auto_awesome, color: green),
+                  title: const Text(
+                    'Scan quality',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(
+                    '${(receipt.overallConfidence * 100).round()}% confidence${receipt.warnings.isEmpty ? '' : ' · ${receipt.warnings.length} notes'}',
+                  ),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (receipt.printedItemCount != null)
                           Chip(
                             label: Text(
-                              '${(receipt.overallConfidence * 100).round()}% confidence',
+                              '${receipt.items.length}/${receipt.printedItemCount} products',
                             ),
                           ),
-                          if (receipt.printedItemCount != null)
-                            Chip(
-                              label: Text(
-                                '${receipt.items.length}/${receipt.printedItemCount} product rows',
-                              ),
+                        if (receipt.printedQuantityTotal != null)
+                          Chip(
+                            label: Text(
+                              'Quantity ${receipt.printedQuantityTotal!.g}',
                             ),
-                          if (receipt.printedQuantityTotal != null)
-                            Chip(
-                              label: Text(
-                                'Printed quantity ${receipt.printedQuantityTotal!.g}',
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (receipt.warnings.isNotEmpty)
-                Card(
-                  color: const Color(0xFFFFF3CD),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Check these details',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 6),
-                        ...receipt.warnings.take(4).map(
-                              (warning) => Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text('• $warning'),
-                              ),
-                            ),
+                          ),
                       ],
                     ),
-                  ),
+                    if (receipt.warnings.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      ...receipt.warnings.take(4).map(
+                            (warning) => Padding(
+                              padding: const EdgeInsets.only(top: 5),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(Icons.info_outline,
+                                      size: 17, color: green),
+                                  const SizedBox(width: 7),
+                                  Expanded(child: Text(warning)),
+                                ],
+                              ),
+                            ),
+                          ),
+                    ],
+                  ],
                 ),
+              ),
             ],
+            const SizedBox(height: 18),
+            _HomeSectionTitle(
+              'Products',
+              trailing: '${receipt.items.length}',
+            ),
+            const SizedBox(height: 7),
             ...List.generate(receipt.items.length, (index) {
               final item = receipt.items[index];
               return Card(
                 color:
-                    item.needsReview ? const Color(0xFFFFF3CD) : Colors.white,
+                    item.needsReview ? CartSenseColors.warning : Colors.white,
                 child: ListTile(
                   onTap: () => _editItem(index),
+                  leading: CategoryAvatar(category: item.category),
                   title: Text(item.name,
                       style: const TextStyle(fontWeight: FontWeight.w700)),
                   subtitle: Text(
                       '${item.quantity.g} × ₹${item.unitPrice.toStringAsFixed(2)}  •  Discount ₹${item.discount.toStringAsFixed(2)}\n${item.category}${item.needsReview ? '  •  REVIEW' : ''}'),
                   isThreeLine: true,
                   trailing: SizedBox(
-                    width: 116,
+                    width: 104,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
@@ -1099,17 +1345,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                       ? 'Save bill & reconcile shopping list'
                       : 'Save bill changes'),
             ),
-            OutlinedButton.icon(
-              onPressed: () => ReceiptExport().shareCsv(receipt),
-              icon: const Icon(Icons.table_view_outlined),
-              label: const Text('Export for Excel'),
-            ),
           ],
         ),
       );
 
   Widget _tripSummary(ShoppingTripResult trip) => Card(
-        color: const Color(0xFFE8F4D7),
+        color: CartSenseColors.success,
         child: ExpansionTile(
           leading: const Icon(Icons.done_all, color: green),
           title: const Text(

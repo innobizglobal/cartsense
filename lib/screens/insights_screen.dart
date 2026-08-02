@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../services/budget_store.dart';
+import '../theme/cartsense_theme.dart';
+import '../widgets/category_icon.dart';
 
-const _green = Color(0xFF174C3C);
-const _lime = Color(0xFFB8E05A);
-const _ivory = Color(0xFFFFFBF2);
+const _green = CartSenseColors.primary;
+const _lime = CartSenseColors.accent;
+const _ivory = CartSenseColors.background;
 
 class InsightsScreen extends StatefulWidget {
   const InsightsScreen({super.key, required this.receipts});
@@ -86,7 +88,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
     return Scaffold(
       backgroundColor: _ivory,
-      appBar: AppBar(title: const Text('Savings insights')),
+      appBar: AppBar(title: const Text('Insights')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
         children: [
@@ -97,9 +99,16 @@ class _InsightsScreenState extends State<InsightsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'This month',
-                    style: TextStyle(color: Colors.white70),
+                  const Row(
+                    children: [
+                      Icon(Icons.account_balance_wallet_outlined,
+                          color: Colors.white70, size: 19),
+                      SizedBox(width: 7),
+                      Text(
+                        'Grocery spend this month',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -145,7 +154,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           const SizedBox(height: 20),
           const _SectionTitle(
             icon: Icons.show_chart,
-            title: 'Six-month spending trend',
+            title: 'Spending trend',
           ),
           const SizedBox(height: 10),
           if (maximumMonth == 0)
@@ -169,7 +178,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                   : month.total / maximumMonth,
                               minHeight: 12,
                               borderRadius: BorderRadius.circular(8),
-                              backgroundColor: const Color(0xFFE8EEE9),
+                              backgroundColor: CartSenseColors.surfaceMuted,
                               color: _green,
                             ),
                           ),
@@ -201,6 +210,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           else
             ...categories.map((entry) => Card(
                   child: ListTile(
+                    leading: CategoryAvatar(category: entry.key),
                     title: Text(entry.key),
                     trailing: Text(
                       '₹${entry.value.toStringAsFixed(2)}',
@@ -211,14 +221,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
           const SizedBox(height: 20),
           const _SectionTitle(
             icon: Icons.trending_up,
-            title: 'Price rise alerts',
+            title: 'Price changes',
           ),
           const SizedBox(height: 10),
           if (data.priceRises.isEmpty)
             const _EmptyCard('No repeated product price rises found yet.')
           else
             ...data.priceRises.take(8).map((item) => Card(
-                  color: const Color(0xFFFFF3CD),
+                  color: CartSenseColors.warning,
                   child: ListTile(
                     leading: const Icon(Icons.arrow_upward,
                         color: Colors.deepOrange),
@@ -235,7 +245,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           const SizedBox(height: 20),
           const _SectionTitle(
             icon: Icons.storefront_outlined,
-            title: 'Cheaper stores found',
+            title: 'Better prices nearby',
           ),
           const SizedBox(height: 10),
           if (data.cheaperStoreOptions.isEmpty)
@@ -244,7 +254,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             )
           else
             ...data.cheaperStoreOptions.take(8).map((item) => Card(
-                  color: const Color(0xFFE8F4D7),
+                  color: CartSenseColors.success,
                   child: ListTile(
                     leading: const Icon(Icons.savings_outlined, color: _green),
                     title: Text(item.name),
@@ -295,7 +305,7 @@ class _EmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-        color: const Color(0xFFF0F6F2),
+        color: CartSenseColors.surfaceMuted,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Text(message),

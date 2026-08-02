@@ -6,10 +6,12 @@ import '../models/savings_intelligence.dart';
 import '../models/shopping_item.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
+import '../theme/cartsense_theme.dart';
+import '../widgets/category_icon.dart';
 
-const _green = Color(0xFF174C3C);
-const _lime = Color(0xFFB8E05A);
-const _ivory = Color(0xFFFFFBF2);
+const _green = CartSenseColors.primary;
+const _lime = CartSenseColors.accent;
+const _ivory = CartSenseColors.background;
 
 class ShoppingListScreen extends StatefulWidget {
   const ShoppingListScreen({super.key, required this.receipts});
@@ -34,6 +36,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
   List<ShoppingItem> get activeItems =>
       items.where((item) => !item.checked).toList();
+  List<ShoppingItem> get displayItems => [
+        ...activeItems,
+        ...items.where((item) => item.checked),
+      ];
   double get estimatedTotal =>
       activeItems.fold(0, (total, item) => total + item.estimatedTotal);
   double get possibleSaving =>
@@ -215,7 +221,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     return Scaffold(
       backgroundColor: _ivory,
       appBar: AppBar(
-        title: const Text('Shopping assistant'),
+        title: const Text('Shopping list'),
         actions: [
           IconButton(
             tooltip: 'Share list',
@@ -223,10 +229,21 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
             icon: const Icon(Icons.share_outlined),
           ),
           if (items.any((item) => item.checked))
-            IconButton(
-              tooltip: 'Remove checked items',
-              onPressed: _removeChecked,
-              icon: const Icon(Icons.cleaning_services_outlined),
+            PopupMenuButton<String>(
+              tooltip: 'List options',
+              onSelected: (value) {
+                if (value == 'clear') _removeChecked();
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'clear',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.cleaning_services_outlined),
+                    title: Text('Clear purchased'),
+                  ),
+                ),
+              ],
             ),
         ],
       ),
@@ -256,7 +273,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                 ),
                               ),
                               Text(
-                                '${activeItems.length} ${activeItems.length == 1 ? 'product' : 'products'} to buy',
+                                '${activeItems.length} remaining · ${items.where((item) => item.checked).length} purchased',
                                 style: const TextStyle(color: Colors.white70),
                               ),
                               const SizedBox(height: 4),
@@ -307,9 +324,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                     }
                   },
                   decoration: InputDecoration(
-                    labelText: 'What do you need?',
-                    hintText: 'Try tea, milk, oil or a brand',
-                    prefixIcon: const Icon(Icons.search),
+                    labelText: 'Add a product',
+                    hintText: 'Tea, milk, oil or a brand',
+                    prefixIcon: const Icon(Icons.add_shopping_cart_outlined),
                     suffixIcon: queryController.text.trim().isEmpty
                         ? IconButton(
                             tooltip: 'Add product',
@@ -352,11 +369,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         margin: const EdgeInsets.only(bottom: 6),
                         child: ListTile(
                           onTap: () => _openEditor(product: product),
-                          leading: const CircleAvatar(
-                            backgroundColor: _lime,
-                            foregroundColor: _green,
-                            child: Icon(Icons.history),
-                          ),
+                          leading: CategoryAvatar(category: product.category),
                           title: Text(product.name,
                               style:
                                   const TextStyle(fontWeight: FontWeight.w800)),
@@ -373,44 +386,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         ),
                       )),
                 ],
-                if (dueReminders.isNotEmpty) ...[
-                  const SizedBox(height: 18),
-                  _sectionTitle(
-                      Icons.notifications_active_outlined, 'Due reminders'),
-                  ...dueReminders.map((item) => Card(
-                        color: const Color(0xFFFFF3CD),
-                        child: ListTile(
-                          leading: const Icon(Icons.alarm, color: _green),
-                          title: Text(item.name),
-                          subtitle: Text(_reminderText(item.remindAt!)),
-                          trailing: TextButton(
-                            onPressed: () => _toggle(item, true),
-                            child: const Text('Bought'),
-                          ),
-                        ),
-                      )),
-                ],
-                if (dueSuggestions.isNotEmpty) ...[
-                  const SizedBox(height: 18),
-                  _sectionTitle(Icons.replay, 'You may need these again'),
-                  ...dueSuggestions.map((suggestion) => Card(
-                        color: const Color(0xFFE8F4D7),
-                        child: ListTile(
-                          leading: const Icon(Icons.history, color: _green),
-                          title: Text(suggestion.name),
-                          subtitle: Text(
-                            '${suggestion.category} · bought ${suggestion.purchaseCount} times · about ₹${suggestion.latestPrice.toStringAsFixed(2)}',
-                          ),
-                          trailing: IconButton(
-                            tooltip: 'Add to list',
-                            onPressed: () => _openEditor(frequent: suggestion),
-                            icon: const Icon(Icons.add_circle, color: _green),
-                          ),
-                        ),
-                      )),
-                ],
                 const SizedBox(height: 20),
-                _sectionTitle(Icons.checklist, 'My list'),
+                _sectionTitle(Icons.checklist, 'Shopping list'),
                 if (items.isEmpty)
                   const Card(
                     child: Padding(
@@ -421,7 +398,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                     ),
                   )
                 else
-                  ...items.map((item) => Card(
+                  ...displayItems.map((item) => Card(
                         child: CheckboxListTile(
                           value: item.checked,
                           controlAffinity: ListTileControlAffinity.leading,
@@ -453,6 +430,43 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           ),
                         ),
                       )),
+                if (dueReminders.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _sectionTitle(
+                      Icons.notifications_active_outlined, 'Reminders'),
+                  ...dueReminders.map((item) => Card(
+                        color: CartSenseColors.warning,
+                        child: ListTile(
+                          leading: CategoryAvatar(category: item.category),
+                          title: Text(item.name),
+                          subtitle: Text(_reminderText(item.remindAt!)),
+                          trailing: TextButton(
+                            onPressed: () => _toggle(item, true),
+                            child: const Text('Purchased'),
+                          ),
+                        ),
+                      )),
+                ],
+                if (dueSuggestions.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _sectionTitle(Icons.replay, 'Buy again'),
+                  ...dueSuggestions.map((suggestion) => Card(
+                        color: CartSenseColors.success,
+                        child: ListTile(
+                          leading:
+                              CategoryAvatar(category: suggestion.category),
+                          title: Text(suggestion.name),
+                          subtitle: Text(
+                            '${suggestion.category} · usually ₹${suggestion.latestPrice.toStringAsFixed(2)}',
+                          ),
+                          trailing: IconButton(
+                            tooltip: 'Add to list',
+                            onPressed: () => _openEditor(frequent: suggestion),
+                            icon: const Icon(Icons.add_circle, color: _green),
+                          ),
+                        ),
+                      )),
+                ],
                 if (_storePlan.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   _sectionTitle(Icons.storefront_outlined, 'Store plan'),
@@ -763,7 +777,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                 ],
                 if (matched != null)
                   Card(
-                    color: const Color(0xFFE8F4D7),
+                    color: CartSenseColors.success,
                     child: ListTile(
                       dense: true,
                       leading:
