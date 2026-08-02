@@ -4,6 +4,8 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseKeystorePath = System.getenv("CARTSENSE_KEYSTORE_FILE")
+
 android {
     namespace = "com.innobizglobal.cartsense_lite"
     compileSdk = flutter.compileSdkVersion
@@ -24,11 +26,23 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        releaseKeystorePath?.let { keystorePath ->
+            create("cartsenseRelease") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("CARTSENSE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("CARTSENSE_KEY_ALIAS")
+                keyPassword = System.getenv("CARTSENSE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // This installable beta is release-optimized and debug-signed.
-            // Production store distribution should use an Innobiz release key.
-            signingConfig = signingConfigs.getByName("debug")
+            // CI supplies the stable CartSense beta key through encrypted
+            // GitHub secrets. Local builds fall back to Android's debug key.
+            signingConfig = signingConfigs.findByName("cartsenseRelease")
+                ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

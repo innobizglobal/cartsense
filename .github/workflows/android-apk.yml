@@ -47,7 +47,19 @@ jobs:
       - name: Run tests
         run: flutter test
 
+      - name: Configure stable CartSense beta signing
+        env:
+          CARTSENSE_KEYSTORE_BASE64: ${{ secrets.CARTSENSE_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$CARTSENSE_KEYSTORE_BASE64"
+          printf '%s' "$CARTSENSE_KEYSTORE_BASE64" | base64 --decode > android/app/cartsense-beta.jks
+
       - name: Build release APK
+        env:
+          CARTSENSE_KEYSTORE_FILE: ${{ github.workspace }}/android/app/cartsense-beta.jks
+          CARTSENSE_KEYSTORE_PASSWORD: ${{ secrets.CARTSENSE_KEYSTORE_PASSWORD }}
+          CARTSENSE_KEY_ALIAS: ${{ secrets.CARTSENSE_KEY_ALIAS }}
+          CARTSENSE_KEY_PASSWORD: ${{ secrets.CARTSENSE_KEY_PASSWORD }}
         run: flutter build apk --release
 
       - name: Prepare and validate installable APK
@@ -66,3 +78,7 @@ jobs:
             CartSense.apk.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f android/app/cartsense-beta.jks

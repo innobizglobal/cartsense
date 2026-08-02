@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Signing keys are supplied to CI through encrypted repository secrets.
+*.jks
+key.properties
