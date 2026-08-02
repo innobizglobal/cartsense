@@ -43,13 +43,32 @@ class _HomeScreenState extends State<HomeScreen> {
   final picker = ImagePicker();
   final parser = ReceiptParser();
   final store = ReceiptStore();
+  final searchController = TextEditingController();
   List<Receipt> history = [];
   bool busy = false;
+  String query = '';
+
+  List<Receipt> get filteredHistory {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return history;
+    return history
+        .where((receipt) =>
+            receipt.store.toLowerCase().contains(needle) ||
+            receipt.items
+                .any((item) => item.name.toLowerCase().contains(needle)))
+        .toList();
+  }
 
   @override
   void initState() {
     super.initState();
     _refresh();
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
@@ -64,21 +83,18 @@ class _HomeScreenState extends State<HomeScreen> {
       maxWidth: 2400,
     );
     if (image == null || !mounted) return;
-    if (!parser.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-            'Bill captured. Live AI reading will be connected in the next build. You can test the full workflow with Demo bill.'),
-      ));
-      return;
-    }
     setState(() => busy = true);
     try {
       final receipt = await parser.parse(File(image.path));
       if (mounted) await _open(receipt);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+        final message = error is FormatException
+            ? error.message.toString()
+            : 'The bill could not be read. Please try another photo.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
       }
     } finally {
       if (mounted) setState(() => busy = false);
@@ -89,6 +105,32 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => ReceiptScreen(receipt: receipt),
     ));
+    await _refresh();
+  }
+
+  Future<void> _deleteReceipt(Receipt receipt) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete saved bill?'),
+        content: Text(
+          '${receipt.store} will be removed from this device. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await store.delete(receipt.id);
     await _refresh();
   }
 
@@ -105,7 +147,31 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         body: busy
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 20),
+                      Text(
+                        'Reading your bill privately on this device...',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'This can take a few seconds. No receipt data is uploaded.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              )
             : SafeArea(
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
@@ -128,7 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   fontWeight: FontWeight.w800)),
                           const SizedBox(height: 12),
                           Text(
-                              'Photograph your receipt, check each item and keep a clean spending history.',
+                              'Photograph your receipt, read it privately on this device and keep a clean spending history.',
                               style: TextStyle(
                                   color: Colors.white.withValues(alpha: .82),
                                   fontSize: 16)),
@@ -176,14 +242,43 @@ class _HomeScreenState extends State<HomeScreen> {
                             .titleLarge
                             ?.copyWith(fontWeight: FontWeight.w800)),
                     const SizedBox(height: 10),
+                    if (history.isNotEmpty) ...[
+                      TextField(
+                        controller: searchController,
+                        onChanged: (value) => setState(() => query = value),
+                        decoration: InputDecoration(
+                          hintText: 'Search stores or grocery items',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: query.isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Clear search',
+                                  onPressed: () {
+                                    searchController.clear();
+                                    setState(() => query = '');
+                                  },
+                                  icon: const Icon(Icons.close),
+                                ),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     if (history.isEmpty)
                       const Card(
                           child: Padding(
                               padding: EdgeInsets.all(20),
                               child: Text(
                                   'No saved bills yet. Scan one or open the demo.')))
+                    else if (filteredHistory.isEmpty)
+                      const Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(20),
+                          child: Text('No saved bills match your search.'),
+                        ),
+                      )
                     else
-                      ...history.map((receipt) => Card(
+                      ...filteredHistory.map((receipt) => Card(
                             child: ListTile(
                               onTap: () => _open(receipt),
                               leading: const CircleAvatar(
@@ -195,10 +290,27 @@ class _HomeScreenState extends State<HomeScreen> {
                                       fontWeight: FontWeight.w700)),
                               subtitle: Text(
                                   '${receipt.items.length} items • ${receipt.purchasedAt.day}/${receipt.purchasedAt.month}/${receipt.purchasedAt.year}'),
-                              trailing: Text(
-                                  '₹${receipt.calculatedTotal.toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w800)),
+                              trailing: SizedBox(
+                                width: 116,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        '₹${receipt.calculatedTotal.toStringAsFixed(2)}',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Delete bill',
+                                      onPressed: () => _deleteReceipt(receipt),
+                                      icon: const Icon(Icons.delete_outline),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           )),
                   ],
@@ -217,6 +329,82 @@ class ReceiptScreen extends StatefulWidget {
 class _ReceiptScreenState extends State<ReceiptScreen> {
   late Receipt receipt = widget.receipt;
 
+  Future<void> _editDetails() async {
+    final store = TextEditingController(text: receipt.store);
+    final date = TextEditingController(
+      text:
+          '${receipt.purchasedAt.day}/${receipt.purchasedAt.month}/${receipt.purchasedAt.year}',
+    );
+    final total =
+        TextEditingController(text: receipt.printedTotal.toStringAsFixed(2));
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit bill details'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: store,
+                decoration: const InputDecoration(labelText: 'Store name'),
+              ),
+              TextField(
+                controller: date,
+                keyboardType: TextInputType.datetime,
+                decoration:
+                    const InputDecoration(labelText: 'Date (day/month/year)'),
+              ),
+              TextField(
+                controller: total,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration:
+                    const InputDecoration(labelText: 'Printed bill total'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (shouldSave == true) {
+      final dateParts = date.text.trim().split(RegExp(r'[/.-]'));
+      DateTime? parsedDate;
+      if (dateParts.length == 3) {
+        final day = int.tryParse(dateParts[0]);
+        final month = int.tryParse(dateParts[1]);
+        final year = int.tryParse(dateParts[2]);
+        if (day != null && month != null && year != null) {
+          final candidate = DateTime(year, month, day);
+          if (candidate.day == day &&
+              candidate.month == month &&
+              candidate.year == year) {
+            parsedDate = candidate;
+          }
+        }
+      }
+      setState(() {
+        if (store.text.trim().isNotEmpty) receipt.store = store.text.trim();
+        receipt.printedTotal =
+            double.tryParse(total.text) ?? receipt.printedTotal;
+        receipt.purchasedAt = parsedDate ?? receipt.purchasedAt;
+      });
+    }
+    store.dispose();
+    date.dispose();
+    total.dispose();
+  }
+
   Future<void> _editItem(int index) async {
     final item = receipt.items[index];
     final name = TextEditingController(text: item.name);
@@ -225,7 +413,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         TextEditingController(text: item.unitPrice.toStringAsFixed(2));
     final discount =
         TextEditingController(text: item.discount.toStringAsFixed(2));
-    final save = await showDialog<bool>(
+    final action = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Edit item'),
@@ -250,15 +438,21 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () => Navigator.pop(context, 'delete'),
+              child: const Text('Delete')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, 'cancel'),
               child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(context, 'save'),
               child: const Text('Save')),
         ],
       ),
     );
-    if (save == true) {
+    if (action == 'delete') {
+      setState(() => receipt.items.removeAt(index));
+    } else if (action == 'save') {
       setState(() {
         item.name = name.text.trim();
         item.quantity = double.tryParse(quantity.text) ?? item.quantity;
@@ -267,6 +461,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         item.confidence = 1;
       });
     }
+    name.dispose();
+    quantity.dispose();
+    price.dispose();
+    discount.dispose();
   }
 
   @override
@@ -299,6 +497,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               ]),
             ),
             const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: _editDetails,
+              icon: const Icon(Icons.edit_note_outlined),
+              label: const Text('Edit store, date or printed total'),
+            ),
+            const SizedBox(height: 6),
             ...List.generate(receipt.items.length, (index) {
               final item = receipt.items[index];
               return Card(

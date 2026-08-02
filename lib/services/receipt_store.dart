@@ -20,4 +20,14 @@ class ReceiptStore {
       receipts.map((item) => item.encode()).toList(),
     );
   }
+
+  Future<void> delete(String receiptId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final receipts = await load();
+    receipts.removeWhere((receipt) => receipt.id == receiptId);
+    await prefs.setStringList(
+      _key,
+      receipts.map((receipt) => receipt.encode()).toList(),
+    );
+  }
 }

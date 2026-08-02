@@ -5,15 +5,16 @@ supermarket receipts.
 
 ## Current checkpoint
 
-- Native camera and gallery entry points
+- Private on-device text recognition for camera and gallery receipts
+- Automatic store, date, product, quantity, price, discount and total extraction
 - Editable itemised receipt
+- Editable store, purchase date and printed total
 - Low-confidence review state
 - Quantity, discount and total reconciliation
-- On-device receipt history
+- Searchable on-device receipt history with confirmed deletion
 - Excel-compatible CSV share/export
 - Demo bill works without any cloud configuration
-- Live parsing uses a server endpoint supplied at build time; no AI secret is
-  embedded in the application
+- Receipt images and recognized text are not uploaded to a CartSense server
 
 ## Run
 
@@ -27,14 +28,13 @@ flutter run
 ## Build Android APK
 
 ```bash
-flutter build apk --release \
-  --dart-define=PARSER_URL=https://your-secure-parser.example/parse
+flutter build apk --release
 ```
 
-Without `PARSER_URL`, camera/gallery capture remains available and the app
-explains that live AI reading is not connected. The demo, editing, saving and
-export flows remain usable.
+The first on-device scan can take a few seconds while Android initializes the
+text-recognition engine. Accuracy depends on lighting, focus and keeping the
+full receipt straight inside the photo.
 
-The included GitHub Actions workflow can generate the release APK without
-installing Flutter locally. Run **Build Android APK** from the repository's
-Actions tab and download the `CartSense-Lite-Android` artifact.
+The included GitHub Actions workflow tests the project and generates the release
+APK. Run **Test and build Android APK** from the repository's Actions tab and
+download the `CartSense-Android` artifact.
