@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { imageType, normalizeReceipt } from "../lib/receipt-ai";
+import { imageType, normalizeReceipt, shouldAuditReceipt } from "../lib/receipt-ai";
 import { GET as health } from "../app/api/health/route";
 
 test("removes payment metadata and refuses a false total match", () => {
@@ -46,4 +46,71 @@ test("recognizes Android uploads with a generic content type", async () => {
     { type: "application/octet-stream" },
   );
   assert.equal(await imageType(jpeg), "image/jpeg");
+});
+
+test("requests an audit when extracted totals or counts disagree", () => {
+  const receipt = normalizeReceipt({
+    store: "Fresh Mart",
+    purchasedAt: "2026-08-02",
+    currency: "INR",
+    printedTotal: 200,
+    printedItemCount: 2,
+    printedQuantityTotal: 2,
+    taxTotal: 0,
+    billDiscount: 0,
+    otherCharges: 0,
+    overallConfidence: 0.96,
+    warnings: [],
+    items: [
+      { name: "Milk", quantity: 1, unitPrice: 80, lineTotal: 80, discount: 0, confidence: 0.95 },
+    ],
+  });
+
+  assert.equal(shouldAuditReceipt(receipt), true);
+});
+
+test("keeps a high-confidence reconciled receipt on the fast path", () => {
+  const receipt = normalizeReceipt({
+    store: "Fresh Mart",
+    purchasedAt: "2026-08-02",
+    currency: "INR",
+    printedTotal: 200,
+    printedItemCount: 2,
+    printedQuantityTotal: 2,
+    taxTotal: 0,
+    billDiscount: 0,
+    otherCharges: 0,
+    overallConfidence: 0.96,
+    warnings: [],
+    items: [
+      { name: "Milk", quantity: 1, unitPrice: 80, lineTotal: 80, discount: 0, confidence: 0.95 },
+      { name: "Rice", quantity: 1, unitPrice: 120, lineTotal: 120, discount: 0, confidence: 0.94 },
+    ],
+  });
+
+  assert.equal(shouldAuditReceipt(receipt), false);
+});
+
+test("does not add GST twice when product values already equal the payable total", () => {
+  const receipt = normalizeReceipt({
+    store: "D-Mart",
+    purchasedAt: "2026-08-02",
+    currency: "INR",
+    printedTotal: 200,
+    printedItemCount: 2,
+    printedQuantityTotal: 2,
+    taxTotal: 20,
+    billDiscount: 0,
+    otherCharges: 0,
+    overallConfidence: 0.96,
+    warnings: [],
+    items: [
+      { name: "Milk", quantity: 1, unitPrice: 80, lineTotal: 80, discount: 0, confidence: 0.95 },
+      { name: "Rice", quantity: 1, unitPrice: 120, lineTotal: 120, discount: 0, confidence: 0.94 },
+    ],
+  });
+
+  assert.equal(receipt.taxTotal, 0);
+  assert.match(receipt.warnings.join(" "), /not added twice/i);
+  assert.doesNotMatch(receipt.warnings.join(" "), /differs from the printed total/i);
 });

@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_receipt.dart';
 import 'models/receipt.dart';
 import 'models/spending_insights.dart';
+import 'screens/insights_screen.dart';
+import 'screens/shopping_list_screen.dart';
 import 'services/receipt_export.dart';
 import 'services/ai_receipt_service.dart';
 import 'services/receipt_parser.dart';
@@ -203,6 +205,18 @@ class _HomeScreenState extends State<HomeScreen> {
     await _refresh();
   }
 
+  Future<void> _openInsights() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => InsightsScreen(receipts: history),
+    ));
+  }
+
+  Future<void> _openShoppingAssistant() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ShoppingListScreen(receipts: history),
+    ));
+  }
+
   Future<void> _deleteReceipt(Receipt receipt) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -353,6 +367,28 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: const Icon(Icons.play_circle_outline),
                       label: const Text('Try a complete demo bill'),
                     ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _HomeFeatureButton(
+                            icon: Icons.savings_outlined,
+                            title: 'Savings\ninsights',
+                            subtitle: 'Budget & prices',
+                            onTap: _openInsights,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _HomeFeatureButton(
+                            icon: Icons.shopping_cart_outlined,
+                            title: 'Shopping\nassistant',
+                            subtitle: 'Smart reusable list',
+                            onTap: _openShoppingAssistant,
+                          ),
+                        ),
+                      ],
+                    ),
                     if (monthlyInsights.billCount > 0) ...[
                       const SizedBox(height: 18),
                       Card(
@@ -479,6 +515,54 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+      );
+}
+
+class _HomeFeatureButton extends StatelessWidget {
+  const _HomeFeatureButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        color: const Color(0xFFF0F6F2),
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  backgroundColor: lime,
+                  foregroundColor: green,
+                  child: Icon(icon),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: green,
+                    fontWeight: FontWeight.w900,
+                    height: 1.05,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(subtitle, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        ),
       );
 }
 

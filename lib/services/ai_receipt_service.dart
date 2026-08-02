@@ -44,7 +44,7 @@ class AiReceiptService {
     final request = http.MultipartRequest('POST', Uri.parse(endpoint));
     request.headers.addAll({
       'x-cartsense-device': await _deviceId(),
-      'x-cartsense-client': 'android/0.5.0',
+      'x-cartsense-client': 'android/0.6.0',
     });
     request.files.add(await http.MultipartFile.fromPath(
       'receipt',
@@ -56,7 +56,7 @@ class AiReceiptService {
     late http.StreamedResponse streamed;
     try {
       streamed =
-          await client.send(request).timeout(const Duration(seconds: 100));
+          await client.send(request).timeout(const Duration(seconds: 160));
     } on SocketException {
       throw const AiReceiptException(
         'No internet connection. You can still use the private on-device reader.',

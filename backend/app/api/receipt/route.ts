@@ -1,5 +1,13 @@
 import { env } from "cloudflare:workers";
-import { extractResponseText, imageType, normalizeReceipt, receiptJsonSchema, receiptPrompt } from "@/lib/receipt-ai";
+import {
+  extractResponseText,
+  imageType,
+  normalizeReceipt,
+  receiptAuditPrompt,
+  receiptJsonSchema,
+  receiptPrompt,
+  shouldAuditReceipt,
+} from "@/lib/receipt-ai";
 
 const maximumImageBytes = 12 * 1024 * 1024;
 interface RuntimeEnv {
@@ -31,7 +39,7 @@ async function consumeScan(request: Request) {
     "SELECT scan_count AS scanCount FROM scan_usage WHERE bucket = ? AND client_hash = ?",
   ).bind(bucket, hash).first<{ scanCount: number }>();
   const count = existing?.scanCount ?? 0;
-  if (count >= limit) return { allowed: false, remaining: 0 };
+  if (count >= limit) return { allowed: false, remaining: 0, identifier: hash };
   await bindings.DB.prepare(
     `INSERT INTO scan_usage (bucket, client_hash, scan_count, updated_at)
      VALUES (?, ?, 1, ?)
@@ -39,11 +47,64 @@ async function consumeScan(request: Request) {
        scan_count = scan_count + 1,
        updated_at = excluded.updated_at`,
   ).bind(bucket, hash, new Date().toISOString()).run();
-  return { allowed: true, remaining: Math.max(0, limit - count - 1) };
+  return {
+    allowed: true,
+    remaining: Math.max(0, limit - count - 1),
+    identifier: hash,
+  };
 }
 
 function errorResponse(message: string, status: number, code: string) {
   return Response.json({ error: message, code }, { status });
+}
+
+class ModelRequestError extends Error {
+  constructor(readonly status: number) {
+    super(`OpenAI request failed with status ${status}`);
+  }
+}
+
+async function analyzeReceipt(
+  bindings: RuntimeEnv,
+  imageUrl: string,
+  prompt: string,
+  safetyIdentifier: string,
+) {
+  const upstream = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${bindings.OPENAI_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: bindings.OPENAI_MODEL ?? "gpt-5.6-terra",
+      store: false,
+      safety_identifier: safetyIdentifier,
+      max_output_tokens: 12000,
+      reasoning: { effort: "medium" },
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          { type: "input_image", image_url: imageUrl, detail: "original" },
+        ],
+      }],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "grocery_receipt",
+          strict: true,
+          schema: receiptJsonSchema,
+        },
+      },
+    }),
+    signal: AbortSignal.timeout(90000),
+  });
+  if (!upstream.ok) throw new ModelRequestError(upstream.status);
+  const payload = await upstream.json() as Record<string, unknown>;
+  return normalizeReceipt(
+    JSON.parse(extractResponseText(payload)) as Record<string, unknown>,
+  );
 }
 
 export async function POST(request: Request) {
@@ -75,7 +136,7 @@ export async function POST(request: Request) {
     return errorResponse("The receipt photo must be between 1 byte and 12 MB.", 413, "IMAGE_TOO_LARGE");
   }
 
-  let allowance: { allowed: boolean; remaining: number };
+  let allowance: { allowed: boolean; remaining: number; identifier: string };
   try {
     allowance = await consumeScan(request);
   } catch {
@@ -86,59 +147,55 @@ export async function POST(request: Request) {
   }
 
   const base64 = Buffer.from(await image.arrayBuffer()).toString("base64");
-  let upstream: Response;
+  const imageUrl = `data:${effectiveImageType};base64,${base64}`;
+  let receipt: Awaited<ReturnType<typeof analyzeReceipt>>;
   try {
-    upstream = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${bindings.OPENAI_API_KEY}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: bindings.OPENAI_MODEL ?? "gpt-5.6-terra",
-        store: false,
-        max_output_tokens: 12000,
-        input: [{
-          role: "user",
-          content: [
-            { type: "input_text", text: receiptPrompt },
-            { type: "input_image", image_url: `data:${effectiveImageType};base64,${base64}`, detail: "original" },
-          ],
-        }],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "grocery_receipt",
-            strict: true,
-            schema: receiptJsonSchema,
-          },
-        },
-      }),
-      signal: AbortSignal.timeout(90000),
-    });
-  } catch {
-    return errorResponse("The AI reader could not be reached. Try again or use private scanning.", 502, "AI_UNREACHABLE");
-  }
-
-  if (!upstream.ok) {
-    const retryable = upstream.status === 408 || upstream.status === 409 || upstream.status === 429 || upstream.status >= 500;
-    return errorResponse(
-      retryable ? "The AI reader is busy. Please try again shortly." : "The AI reader could not process this receipt.",
-      retryable ? 503 : 422,
-      "AI_REQUEST_FAILED",
+    receipt = await analyzeReceipt(
+      bindings,
+      imageUrl,
+      receiptPrompt,
+      allowance.identifier,
     );
-  }
-
-  try {
-    const payload = await upstream.json() as Record<string, unknown>;
-    const receipt = normalizeReceipt(JSON.parse(extractResponseText(payload)) as Record<string, unknown>);
+    if (shouldAuditReceipt(receipt)) {
+      try {
+        receipt = await analyzeReceipt(
+          bindings,
+          imageUrl,
+          receiptAuditPrompt(receipt),
+          allowance.identifier,
+        );
+      } catch {
+        receipt.warnings = [
+          ...receipt.warnings,
+          "The second AI cross-check was unavailable; review highlighted details.",
+        ];
+      }
+    }
     return Response.json({ receipt }, {
       headers: {
         "cache-control": "no-store",
         "x-cartsense-scans-remaining": String(allowance.remaining),
       },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof ModelRequestError) {
+      const retryable = error.status === 408 || error.status === 409 ||
+        error.status === 429 || error.status >= 500;
+      return errorResponse(
+        retryable
+          ? "The AI reader is busy. Please try again shortly."
+          : "The AI reader could not process this receipt.",
+        retryable ? 503 : 422,
+        "AI_REQUEST_FAILED",
+      );
+    }
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      return errorResponse(
+        "The AI reader took too long. Try again or use private scanning.",
+        504,
+        "AI_TIMEOUT",
+      );
+    }
     return errorResponse("The AI result was incomplete. Retake the photo with the whole receipt visible.", 422, "AI_RESULT_INVALID");
   }
 }

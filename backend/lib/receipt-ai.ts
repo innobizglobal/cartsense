@@ -66,6 +66,22 @@ Rules:
 - Check arithmetic: sum(items.lineTotal) + taxTotal + otherCharges - billDiscount should equal printedTotal when the receipt exposes all components. Report any mismatch in warnings.
 - For Indian receipts use currency INR and ISO date YYYY-MM-DD when the date is readable.`;
 
+export function receiptAuditPrompt(firstPass: ReturnType<typeof normalizeReceipt>) {
+  return `Audit a first-pass grocery receipt extraction against the original receipt image. Return a complete corrected replacement using the requested schema.
+
+Audit method:
+- Re-read the product table row by row using the printed columns and their horizontal alignment. Do not trust the first pass when pixels disagree.
+- Verify every product name, quantity, unit rate, discount and line value against the same physical row.
+- Use printed item count and total quantity as cross-checks, but never invent a missing row merely to force a match.
+- Exclude headers, addresses, survey text, GST summaries, tax rows, payment lines, amount received, change, savings text, totals and barcodes.
+- Verify the final payable total separately. Recheck tax, bill discount and other charges, then test the arithmetic.
+- Lower confidence and add a short warning wherever folds, stamps, blur, shadows or clipping prevent visual confirmation.
+- Preserve a correct first-pass value when the image supports it. Correct it only when the receipt pixels support the correction.
+
+First-pass extraction to audit:
+${JSON.stringify(firstPass)}`;
+}
+
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export async function imageType(file: File) {
@@ -132,11 +148,20 @@ export function normalizeReceipt(raw: UnknownRecord) {
   }
 
   const printedTotal = Math.max(0, finiteNumber(raw.printedTotal));
-  const taxTotal = Math.max(0, finiteNumber(raw.taxTotal));
+  let taxTotal = Math.max(0, finiteNumber(raw.taxTotal));
   const billDiscount = Math.max(0, finiteNumber(raw.billDiscount));
   const otherCharges = Math.max(0, finiteNumber(raw.otherCharges));
-  const calculated = items.reduce((sum, item) => sum + item.parsedLineTotal, 0)
-    + taxTotal + otherCharges - billDiscount;
+  const itemTotal = items.reduce((sum, item) => sum + item.parsedLineTotal, 0);
+  const totalWithoutSeparateTax = itemTotal + otherCharges - billDiscount;
+  if (
+    taxTotal > 0 &&
+    printedTotal > 0 &&
+    Math.abs(totalWithoutSeparateTax - printedTotal) <= 0.05
+  ) {
+    taxTotal = 0;
+    warnings.push("GST is already included in the product values and was not added twice.");
+  }
+  const calculated = itemTotal + taxTotal + otherCharges - billDiscount;
   if (printedTotal > 0 && Math.abs(calculated - printedTotal) > 0.05) {
     warnings.push(`Extracted arithmetic differs from the printed total by ${Math.abs(calculated - printedTotal).toFixed(2)}.`);
   }
@@ -159,6 +184,28 @@ export function normalizeReceipt(raw: UnknownRecord) {
     warnings: [...new Set(warnings)],
     recognitionSource: "ai_enhanced",
   };
+}
+
+export function shouldAuditReceipt(receipt: ReturnType<typeof normalizeReceipt>) {
+  const calculated = receipt.items.reduce(
+    (sum, item) => sum + item.parsedLineTotal,
+    0,
+  ) + receipt.taxTotal + receipt.otherCharges - receipt.billDiscount;
+  const arithmeticMismatch = receipt.printedTotal > 0 &&
+    Math.abs(calculated - receipt.printedTotal) > 0.05;
+  const itemCountMismatch = receipt.printedItemCount != null &&
+    receipt.printedItemCount !== receipt.items.length;
+  const quantityMismatch = receipt.printedQuantityTotal != null &&
+    Math.abs(
+      receipt.items.reduce((sum, item) => sum + item.quantity, 0) -
+        receipt.printedQuantityTotal,
+    ) > 0.01;
+
+  return receipt.overallConfidence < 0.9 ||
+    receipt.items.some((item) => item.confidence < 0.82) ||
+    arithmeticMismatch ||
+    itemCountMismatch ||
+    quantityMismatch;
 }
 
 export function extractResponseText(payload: UnknownRecord) {
