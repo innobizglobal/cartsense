@@ -1,4 +1,5 @@
 import 'package:cartsense_lite/models/shopping_item.dart';
+import 'package:cartsense_lite/models/receipt.dart';
 import 'package:cartsense_lite/services/shopping_list_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -78,5 +79,101 @@ void main() {
     final saved = await store.load();
     expect(saved, hasLength(1));
     expect(saved.single.quantity, 2);
+  });
+
+  test('reconciliation completes matches and keeps missing products active',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = ShoppingListStore();
+    final tea = ShoppingItem(
+      id: 'tea',
+      name: 'Tea',
+      quantity: 1,
+      category: GroceryCategory.teaCoffee,
+      expectedUnitPrice: 170,
+      bestUnitPrice: 160,
+      bestStore: 'D-Mart',
+      createdAt: DateTime(2026, 8, 2),
+    );
+    final milk = ShoppingItem(
+      id: 'milk',
+      name: 'Milk',
+      quantity: 1,
+      category: GroceryCategory.dairy,
+      expectedUnitPrice: 60,
+      bestUnitPrice: 60,
+      bestStore: 'D-Mart',
+      createdAt: DateTime(2026, 8, 2),
+      checked: true,
+      completedAt: DateTime(2026, 8, 3),
+    );
+    await store.add(tea);
+    await store.add(milk);
+    await store.update(milk);
+    final receipt = Receipt(
+      id: 'bill-3',
+      store: 'D-Mart',
+      purchasedAt: DateTime(2026, 8, 3),
+      printedTotal: 172,
+      items: [
+        ReceiptItem(
+          name: 'Tetley Classic',
+          quantity: 1,
+          unitPrice: 172,
+          discount: 0,
+          confidence: .95,
+        ),
+      ],
+    );
+
+    await store.applyReconciliation(
+      receipt: receipt,
+      plannedItemIds: const ['tea', 'milk'],
+      assignments: const {'tea': 0},
+    );
+
+    final saved = await store.load();
+    final savedTea = saved.singleWhere((item) => item.id == 'tea');
+    final savedMilk = saved.singleWhere((item) => item.id == 'milk');
+    expect(savedTea.checked, isTrue);
+    expect(savedTea.reconciledReceiptId, 'bill-3');
+    expect(savedTea.purchasedName, 'Tetley Classic');
+    expect(savedTea.actualUnitPrice, 172);
+    expect(savedMilk.checked, isFalse);
+    expect(savedMilk.reconciledReceiptId, isNull);
+  });
+
+  test('adding a previously completed product starts a fresh quantity',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = ShoppingListStore();
+    final completed = ShoppingItem(
+      id: 'tea',
+      name: 'Tea',
+      quantity: 3,
+      category: GroceryCategory.teaCoffee,
+      expectedUnitPrice: 170,
+      bestUnitPrice: 160,
+      bestStore: 'D-Mart',
+      createdAt: DateTime(2026, 8, 1),
+      checked: true,
+      reconciledReceiptId: 'old-bill',
+    );
+    await store.add(completed);
+    await store.add(ShoppingItem(
+      id: 'new-tea',
+      name: 'Tea',
+      quantity: 1,
+      category: GroceryCategory.teaCoffee,
+      expectedUnitPrice: 172,
+      bestUnitPrice: 160,
+      bestStore: 'D-Mart',
+      createdAt: DateTime(2026, 8, 8),
+    ));
+
+    final saved = (await store.load()).single;
+    expect(saved.quantity, 1);
+    expect(saved.checked, isFalse);
+    expect(saved.reconciledReceiptId, isNull);
   });
 }

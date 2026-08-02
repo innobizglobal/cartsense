@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cartsense_lite/models/receipt.dart';
+import 'package:cartsense_lite/models/shopping_trip.dart';
 
 void main() {
   test('receipt arithmetic includes quantity and discount', () {
@@ -89,5 +90,43 @@ void main() {
     expect(decoded.items.single.parsedLineTotal, 90);
     expect(decoded.warnings, hasLength(1));
     expect(decoded.items.single.category, GroceryCategory.dairy);
+  });
+
+  test('shopping trip result survives receipt storage', () {
+    final receipt = Receipt(
+      id: 'trip-bill',
+      store: 'D-Mart',
+      purchasedAt: DateTime(2026, 8, 3),
+      printedTotal: 172,
+      items: [],
+      shoppingTrip: ShoppingTripResult(
+        receiptId: 'trip-bill',
+        store: 'D-Mart',
+        reconciledAt: DateTime(2026, 8, 3, 18),
+        billTotal: 172,
+        plannedEstimate: 170,
+        matches: const [
+          TripMatchSnapshot(
+            plannedItemId: 'tea',
+            plannedName: 'Tea',
+            purchasedName: 'Tetley Classic',
+            category: GroceryCategory.teaCoffee,
+            plannedQuantity: 1,
+            purchasedQuantity: 1,
+            expectedTotal: 170,
+            actualTotal: 172,
+            confidence: .84,
+          ),
+        ],
+        missing: const [],
+        unplanned: const [],
+      ),
+    );
+
+    final decoded = Receipt.decode(receipt.encode());
+    expect(decoded.shoppingTrip, isNotNull);
+    expect(
+        decoded.shoppingTrip!.matches.single.purchasedName, 'Tetley Classic');
+    expect(decoded.shoppingTrip!.matchedPriceDifference, 2);
   });
 }

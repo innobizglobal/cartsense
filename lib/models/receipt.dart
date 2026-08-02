@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'shopping_trip.dart';
 
 class ReceiptItem {
   ReceiptItem({
@@ -164,6 +165,7 @@ class Receipt {
     this.overallConfidence = 0.65,
     this.warnings = const [],
     this.recognitionSource = 'on_device',
+    this.shoppingTrip,
   });
 
   String id;
@@ -180,6 +182,7 @@ class Receipt {
   double overallConfidence;
   List<String> warnings;
   String recognitionSource;
+  ShoppingTripResult? shoppingTrip;
 
   double get itemSubtotal => items.fold(0, (sum, item) => sum + item.total);
   double get calculatedTotal =>
@@ -213,6 +216,7 @@ class Receipt {
         'overallConfidence': overallConfidence,
         'warnings': warnings,
         'recognitionSource': recognitionSource,
+        'shoppingTrip': shoppingTrip?.toJson(),
       };
 
   factory Receipt.fromJson(Map<String, dynamic> json) => Receipt(
@@ -238,6 +242,10 @@ class Receipt {
             .map((warning) => warning.toString())
             .toList(),
         recognitionSource: json['recognitionSource']?.toString() ?? 'on_device',
+        shoppingTrip: json['shoppingTrip'] is Map
+            ? ShoppingTripResult.fromJson(
+                Map<String, dynamic>.from(json['shoppingTrip'] as Map))
+            : null,
       );
 
   String encode() => jsonEncode(toJson());

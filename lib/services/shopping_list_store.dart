@@ -41,9 +41,15 @@ class ShoppingListStore {
     );
     if (existing >= 0) {
       final current = items[existing];
-      current.quantity += item.quantity;
+      final wasCompleted =
+          current.checked || current.reconciledReceiptId != null;
+      current.quantity =
+          wasCompleted ? item.quantity : current.quantity + item.quantity;
       current.checked = false;
       current.completedAt = null;
+      current.reconciledReceiptId = null;
+      current.purchasedName = null;
+      current.actualUnitPrice = null;
       if (item.category != GroceryCategory.other) {
         current.category = item.category;
       }
@@ -68,6 +74,39 @@ class ShoppingListStore {
       items.add(item);
     } else {
       items[index] = item;
+    }
+    await saveAll(items);
+  }
+
+  Future<void> applyReconciliation({
+    required Receipt receipt,
+    required List<String> plannedItemIds,
+    required Map<String, int> assignments,
+  }) async {
+    final items = await load();
+    final plannedIds = plannedItemIds.toSet();
+    for (final item in items.where((item) => plannedIds.contains(item.id))) {
+      final receiptIndex = assignments[item.id];
+      if (receiptIndex == null ||
+          receiptIndex < 0 ||
+          receiptIndex >= receipt.items.length) {
+        item.checked = false;
+        item.completedAt = null;
+        item.reconciledReceiptId = null;
+        item.purchasedName = null;
+        item.actualUnitPrice = null;
+        continue;
+      }
+      final purchased = receipt.items[receiptIndex];
+      item.checked = true;
+      item.completedAt = receipt.purchasedAt;
+      item.reconciledReceiptId = receipt.id;
+      item.purchasedName = purchased.name;
+      item.actualUnitPrice = purchased.unitPrice > 0
+          ? purchased.unitPrice
+          : purchased.quantity > 0
+              ? purchased.total / purchased.quantity
+              : purchased.total;
     }
     await saveAll(items);
   }

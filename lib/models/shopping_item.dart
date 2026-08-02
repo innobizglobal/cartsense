@@ -15,6 +15,9 @@ class ShoppingItem {
     this.remindAt,
     this.completedAt,
     this.sourceReceiptId,
+    this.reconciledReceiptId,
+    this.purchasedName,
+    this.actualUnitPrice,
     this.checked = false,
   });
 
@@ -30,6 +33,9 @@ class ShoppingItem {
   DateTime? remindAt;
   DateTime? completedAt;
   String? sourceReceiptId;
+  String? reconciledReceiptId;
+  String? purchasedName;
+  double? actualUnitPrice;
   DateTime createdAt;
   bool checked;
 
@@ -53,6 +59,9 @@ class ShoppingItem {
         'remindAt': remindAt?.toIso8601String(),
         'completedAt': completedAt?.toIso8601String(),
         'sourceReceiptId': sourceReceiptId,
+        'reconciledReceiptId': reconciledReceiptId,
+        'purchasedName': purchasedName,
+        'actualUnitPrice': actualUnitPrice,
         'createdAt': createdAt.toIso8601String(),
         'checked': checked,
       };
@@ -70,6 +79,9 @@ class ShoppingItem {
         remindAt: DateTime.tryParse(json['remindAt']?.toString() ?? ''),
         completedAt: DateTime.tryParse(json['completedAt']?.toString() ?? ''),
         sourceReceiptId: json['sourceReceiptId']?.toString(),
+        reconciledReceiptId: json['reconciledReceiptId']?.toString(),
+        purchasedName: json['purchasedName']?.toString(),
+        actualUnitPrice: (json['actualUnitPrice'] as num?)?.toDouble(),
         createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
             DateTime.now(),
         checked: json['checked'] == true,

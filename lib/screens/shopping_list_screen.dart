@@ -133,6 +133,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     setState(() {
       item.checked = checked;
       item.completedAt = checked ? DateTime.now() : null;
+      if (!checked) {
+        item.reconciledReceiptId = null;
+        item.purchasedName = null;
+        item.actualUnitPrice = null;
+      }
     });
     await store.update(item);
     if (checked) {
@@ -253,6 +258,21 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                               Text(
                                 '${activeItems.length} ${activeItems.length == 1 ? 'product' : 'products'} to buy',
                                 style: const TextStyle(color: Colors.white70),
+                              ),
+                              const SizedBox(height: 4),
+                              const Row(
+                                children: [
+                                  Icon(Icons.cloud_done_outlined,
+                                      size: 16, color: _lime),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'Saved automatically on this device',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -473,6 +493,43 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                     ),
                   ),
                 ],
+                if (items.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Card(
+                    color: _green,
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'Finished shopping?',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          const Text(
+                            'Scan the checkout bill to match purchases, keep missing products, and find unplanned spending.',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          const SizedBox(height: 14),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _lime,
+                              foregroundColor: _green,
+                            ),
+                            onPressed: () => Navigator.pop(context, true),
+                            icon: const Icon(Icons.document_scanner_outlined),
+                            label: const Text('Scan bill to reconcile'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
     );
@@ -497,6 +554,16 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
   String _itemSubtitle(ShoppingItem item) {
     final parts = <String>[item.category];
+    if (item.reconciledReceiptId != null) {
+      final purchased =
+          item.purchasedName == null || item.purchasedName == item.name
+              ? 'matched on your bill'
+              : 'matched as ${item.purchasedName}';
+      final actual = item.actualUnitPrice == null
+          ? ''
+          : ' at ₹${item.actualUnitPrice!.toStringAsFixed(2)}';
+      parts.add('$purchased$actual');
+    }
     if (item.expectedUnitPrice > 0) {
       parts.add('estimate ₹${item.estimatedTotal.toStringAsFixed(2)}');
     } else {

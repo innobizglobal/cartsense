@@ -6,9 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_receipt.dart';
 import 'models/receipt.dart';
 import 'models/shopping_item.dart';
+import 'models/shopping_trip.dart';
 import 'models/spending_insights.dart';
 import 'screens/insights_screen.dart';
 import 'screens/shopping_list_screen.dart';
+import 'screens/shopping_reconciliation_screen.dart';
 import 'services/receipt_export.dart';
 import 'services/ai_receipt_service.dart';
 import 'services/receipt_parser.dart';
@@ -54,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final store = ReceiptStore();
   final searchController = TextEditingController();
   List<Receipt> history = [];
+  int activeShoppingCount = 0;
   bool busy = false;
   bool usingAi = false;
   String query = '';
@@ -86,7 +89,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refresh() async {
     final items = await store.load();
-    if (mounted) setState(() => history = items);
+    final shoppingItems = await ShoppingListStore().load();
+    if (mounted) {
+      setState(() {
+        history = items;
+        activeShoppingCount =
+            shoppingItems.where((item) => !item.checked).length;
+      });
+    }
   }
 
   Future<bool> _confirmAiConsent() async {
@@ -200,6 +210,52 @@ class _HomeScreenState extends State<HomeScreen> {
     if (source != null && mounted) await _capture(source);
   }
 
+  Future<void> _showCheckoutScanOptions() async {
+    final selection = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Scan your checkout bill',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text(
+                'CartSense will compare this bill with your saved shopping list.',
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome),
+              title: const Text('AI scan with camera'),
+              onTap: () => Navigator.pop(context, 'ai_camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.add_photo_alternate_outlined),
+              title: const Text('AI scan from gallery'),
+              onTap: () => Navigator.pop(context, 'ai_gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('Private on-device scan'),
+              onTap: () => Navigator.pop(context, 'private'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || selection == null) return;
+    if (selection == 'ai_camera') {
+      await _capture(ImageSource.camera, aiEnhanced: true);
+    } else if (selection == 'ai_gallery') {
+      await _capture(ImageSource.gallery, aiEnhanced: true);
+    } else {
+      await _showPrivateScanOptions();
+    }
+  }
+
   Future<void> _open(Receipt receipt) async {
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => ReceiptScreen(receipt: receipt),
@@ -214,9 +270,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openShoppingAssistant() async {
-    await Navigator.of(context).push(MaterialPageRoute(
+    final scanNow = await Navigator.of(context).push<bool>(MaterialPageRoute(
       builder: (_) => ShoppingListScreen(receipts: history),
     ));
+    await _refresh();
+    if (scanNow == true && mounted) await _showCheckoutScanOptions();
   }
 
   Future<void> _deleteReceipt(Receipt receipt) async {
@@ -385,7 +443,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: _HomeFeatureButton(
                             icon: Icons.shopping_cart_outlined,
                             title: 'Shopping\nassistant',
-                            subtitle: 'Smart reusable list',
+                            subtitle: activeShoppingCount == 0
+                                ? 'Saved on this device'
+                                : '$activeShoppingCount to buy · saved',
                             onTap: _openShoppingAssistant,
                           ),
                         ),
@@ -577,6 +637,7 @@ class ReceiptScreen extends StatefulWidget {
 
 class _ReceiptScreenState extends State<ReceiptScreen> {
   late Receipt receipt = widget.receipt;
+  bool saving = false;
 
   bool get _hasReceiptImage {
     final path = receipt.imagePath;
@@ -620,6 +681,53 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${item.name} added to your shopping list.')),
     );
+  }
+
+  Future<void> _saveAndReconcile() async {
+    if (saving) return;
+    setState(() => saving = true);
+    try {
+      await ReceiptStore().save(receipt);
+      if (!mounted) return;
+      if (receipt.shoppingTrip != null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Bill changes saved on this device.'),
+        ));
+        return;
+      }
+      final shoppingItems = await ShoppingListStore().load();
+      final plannedItems = shoppingItems
+          .where((item) => item.reconciledReceiptId == null)
+          .toList();
+      if (!mounted) return;
+      if (plannedItems.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+            'Bill saved. Add products in Shopping assistant to plan your next trip.',
+          ),
+        ));
+        return;
+      }
+      final result = await Navigator.of(context).push<ShoppingTripResult>(
+        MaterialPageRoute(
+          builder: (_) => ShoppingReconciliationScreen(
+            receipt: receipt,
+            plannedItems: plannedItems,
+          ),
+        ),
+      );
+      if (result == null || !mounted) return;
+      setState(() => receipt.shoppingTrip = result);
+      await ReceiptStore().save(receipt);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          'Trip finished: ${result.matches.length} bought, ${result.missing.length} still on your list.',
+        ),
+      ));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
   }
 
   Future<void> _editDetails() async {
@@ -808,6 +916,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               ]),
             ),
             const SizedBox(height: 14),
+            if (receipt.shoppingTrip case final trip?) ...[
+              _tripSummary(trip),
+              const SizedBox(height: 8),
+            ],
             if (_hasReceiptImage) ...[
               OutlinedButton.icon(
                 onPressed: _showOriginalReceipt,
@@ -972,21 +1084,62 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             _total('Calculated total', receipt.calculatedTotal, strong: true),
             const SizedBox(height: 18),
             FilledButton.icon(
-              onPressed: () async {
-                await ReceiptStore().save(receipt);
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                  content: Text('Bill saved on this device.'),
-                ));
-              },
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Save bill'),
+              onPressed: saving ? null : _saveAndReconcile,
+              icon: saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(receipt.shoppingTrip == null
+                      ? Icons.sync_alt
+                      : Icons.save_outlined),
+              label: Text(saving
+                  ? 'Saving…'
+                  : receipt.shoppingTrip == null
+                      ? 'Save bill & reconcile shopping list'
+                      : 'Save bill changes'),
             ),
             OutlinedButton.icon(
               onPressed: () => ReceiptExport().shareCsv(receipt),
               icon: const Icon(Icons.table_view_outlined),
               label: const Text('Export for Excel'),
             ),
+          ],
+        ),
+      );
+
+  Widget _tripSummary(ShoppingTripResult trip) => Card(
+        color: const Color(0xFFE8F4D7),
+        child: ExpansionTile(
+          leading: const Icon(Icons.done_all, color: green),
+          title: const Text(
+            'Shopping trip reconciled',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: Text(
+            '${trip.matches.length} bought · ${trip.missing.length} still needed · ${trip.unplanned.length} unplanned\nPlanned ₹${trip.plannedEstimate.toStringAsFixed(2)} · Bill ₹${trip.billTotal.toStringAsFixed(2)}',
+          ),
+          children: [
+            if (trip.matches.isNotEmpty)
+              ...trip.matches.map((item) => ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.check_circle_outline),
+                    title: Text('${item.plannedName} → ${item.purchasedName}'),
+                    trailing: Text('₹${item.actualTotal.toStringAsFixed(2)}'),
+                  )),
+            if (trip.missing.isNotEmpty)
+              ...trip.missing.map((item) => ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.pending_outlined),
+                    title: Text('${item.name} remains on the list'),
+                  )),
+            if (trip.unplanned.isNotEmpty)
+              ...trip.unplanned.map((item) => ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.add_circle_outline),
+                    title: Text('${item.name} was unplanned'),
+                    trailing: Text('₹${item.actualTotal.toStringAsFixed(2)}'),
+                  )),
           ],
         ),
       );
