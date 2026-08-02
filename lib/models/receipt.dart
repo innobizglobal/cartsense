@@ -7,6 +7,7 @@ class ReceiptItem {
     required this.unitPrice,
     required this.discount,
     required this.confidence,
+    this.parsedLineTotal,
   });
 
   String name;
@@ -14,8 +15,9 @@ class ReceiptItem {
   double unitPrice;
   double discount;
   double confidence;
+  double? parsedLineTotal;
 
-  double get total => (quantity * unitPrice) - discount;
+  double get total => parsedLineTotal ?? (quantity * unitPrice) - discount;
   bool get needsReview => confidence < 0.8;
 
   Map<String, dynamic> toJson() => {
@@ -24,6 +26,7 @@ class ReceiptItem {
         'unitPrice': unitPrice,
         'discount': discount,
         'confidence': confidence,
+        'parsedLineTotal': parsedLineTotal,
       };
 
   factory ReceiptItem.fromJson(Map<String, dynamic> json) => ReceiptItem(
@@ -32,6 +35,7 @@ class ReceiptItem {
         unitPrice: (json['unitPrice'] as num?)?.toDouble() ?? 0,
         discount: (json['discount'] as num?)?.toDouble() ?? 0,
         confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
+        parsedLineTotal: (json['parsedLineTotal'] as num?)?.toDouble(),
       );
 }
 
@@ -43,6 +47,14 @@ class Receipt {
     required this.items,
     required this.printedTotal,
     this.imagePath,
+    this.printedItemCount,
+    this.printedQuantityTotal,
+    this.taxTotal = 0,
+    this.billDiscount = 0,
+    this.otherCharges = 0,
+    this.overallConfidence = 0.65,
+    this.warnings = const [],
+    this.recognitionSource = 'on_device',
   });
 
   String id;
@@ -51,10 +63,29 @@ class Receipt {
   List<ReceiptItem> items;
   double printedTotal;
   String? imagePath;
+  int? printedItemCount;
+  double? printedQuantityTotal;
+  double taxTotal;
+  double billDiscount;
+  double otherCharges;
+  double overallConfidence;
+  List<String> warnings;
+  String recognitionSource;
 
-  double get calculatedTotal => items.fold(0, (sum, item) => sum + item.total);
+  double get itemSubtotal => items.fold(0, (sum, item) => sum + item.total);
+  double get calculatedTotal =>
+      itemSubtotal + taxTotal + otherCharges - billDiscount;
   double get difference => calculatedTotal - printedTotal;
   bool get reconciled => difference.abs() <= 0.05;
+  bool get isAiEnhanced => recognitionSource == 'ai_enhanced';
+  bool get itemCountMatches =>
+      printedItemCount == null || printedItemCount == items.length;
+  bool get confidentlyReconciled =>
+      reconciled &&
+      items.isNotEmpty &&
+      itemCountMatches &&
+      overallConfidence >= 0.82 &&
+      items.every((item) => item.confidence >= 0.7);
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -63,6 +94,14 @@ class Receipt {
         'items': items.map((item) => item.toJson()).toList(),
         'printedTotal': printedTotal,
         'imagePath': imagePath,
+        'printedItemCount': printedItemCount,
+        'printedQuantityTotal': printedQuantityTotal,
+        'taxTotal': taxTotal,
+        'billDiscount': billDiscount,
+        'otherCharges': otherCharges,
+        'overallConfidence': overallConfidence,
+        'warnings': warnings,
+        'recognitionSource': recognitionSource,
       };
 
   factory Receipt.fromJson(Map<String, dynamic> json) => Receipt(
@@ -76,6 +115,18 @@ class Receipt {
             .toList(),
         printedTotal: (json['printedTotal'] as num?)?.toDouble() ?? 0,
         imagePath: json['imagePath']?.toString(),
+        printedItemCount: (json['printedItemCount'] as num?)?.toInt(),
+        printedQuantityTotal:
+            (json['printedQuantityTotal'] as num?)?.toDouble(),
+        taxTotal: (json['taxTotal'] as num?)?.toDouble() ?? 0,
+        billDiscount: (json['billDiscount'] as num?)?.toDouble() ?? 0,
+        otherCharges: (json['otherCharges'] as num?)?.toDouble() ?? 0,
+        overallConfidence:
+            (json['overallConfidence'] as num?)?.toDouble() ?? 0.65,
+        warnings: ((json['warnings'] as List?) ?? [])
+            .map((warning) => warning.toString())
+            .toList(),
+        recognitionSource: json['recognitionSource']?.toString() ?? 'on_device',
       );
 
   String encode() => jsonEncode(toJson());

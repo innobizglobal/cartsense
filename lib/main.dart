@@ -2,9 +2,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_receipt.dart';
 import 'models/receipt.dart';
 import 'services/receipt_export.dart';
+import 'services/ai_receipt_service.dart';
 import 'services/receipt_parser.dart';
 import 'services/receipt_store.dart';
 
@@ -43,10 +45,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final picker = ImagePicker();
   final parser = ReceiptParser();
+  final aiService = AiReceiptService();
   final store = ReceiptStore();
   final searchController = TextEditingController();
   List<Receipt> history = [];
   bool busy = false;
+  bool usingAi = false;
   String query = '';
 
   List<Receipt> get filteredHistory {
@@ -77,31 +81,115 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() => history = items);
   }
 
-  Future<void> _capture(ImageSource source) async {
+  Future<bool> _confirmAiConsent() async {
+    final preferences = await SharedPreferences.getInstance();
+    if (preferences.getBool('cartsense_ai_consent') == true) return true;
+    if (!mounted) return false;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Use AI Enhanced Scan?'),
+        content: const Text(
+          'Your receipt photo will be sent securely to the CartSense service and OpenAI for recognition. '
+          'CartSense processes the image in memory and does not save it on the service. '
+          'You can use the private on-device reader instead at any time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Agree and continue'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true) {
+      await preferences.setBool('cartsense_ai_consent', true);
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _capture(ImageSource source, {bool aiEnhanced = false}) async {
+    if (aiEnhanced && !aiService.isConfigured) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+            'AI Enhanced Scan is not configured in this build. Private scanning is available.',
+          ),
+        ));
+      }
+      return;
+    }
+    if (aiEnhanced && !await _confirmAiConsent()) return;
     final image = await picker.pickImage(
       source: source,
-      imageQuality: 92,
-      maxWidth: 2400,
+      imageQuality: aiEnhanced ? 88 : 92,
+      maxWidth: aiEnhanced ? 2200 : 2400,
     );
     if (image == null || !mounted) return;
-    setState(() => busy = true);
+    setState(() {
+      busy = true;
+      usingAi = aiEnhanced;
+    });
     try {
-      final receipt = await parser.parse(File(image.path));
+      final file = File(image.path);
+      final receipt =
+          aiEnhanced ? await aiService.parse(file) : await parser.parse(file);
       if (mounted) await _open(receipt);
     } catch (error) {
       if (mounted) {
-        final message = error is FormatException
-            ? error.message.toString()
-            : error is PlatformException
-                ? 'On-device reader error ${error.code}: ${error.message ?? 'unknown error'}'
-                : 'The bill could not be read. Please try another photo.';
+        final message = error is AiReceiptException
+            ? error.message
+            : error is FormatException
+                ? error.message.toString()
+                : error is PlatformException
+                    ? 'On-device reader error ${error.code}: ${error.message ?? 'unknown error'}'
+                    : 'The bill could not be read. Please try another photo.';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
         );
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() {
+          busy = false;
+          usingAi = false;
+        });
+      }
     }
+  }
+
+  Future<void> _showPrivateScanOptions() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('Private on-device reader',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text('The receipt photo stays on this phone.'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.document_scanner_outlined),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source != null && mounted) await _capture(source);
   }
 
   Future<void> _open(Receipt receipt) async {
@@ -145,12 +233,12 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: const [
             Padding(
               padding: EdgeInsets.only(right: 16),
-              child: Chip(label: Text('PRIVATE ON DEVICE')),
+              child: Chip(label: Text('AI + PRIVATE')),
             ),
           ],
         ),
         body: busy
-            ? const Center(
+            ? Center(
                 child: Padding(
                   padding: EdgeInsets.all(32),
                   child: Column(
@@ -159,7 +247,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       CircularProgressIndicator(),
                       SizedBox(height: 20),
                       Text(
-                        'Reading your bill privately on this device...',
+                        usingAi
+                            ? 'AI is carefully reading your bill...'
+                            : 'Reading your bill privately on this device...',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 18,
@@ -168,7 +258,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       SizedBox(height: 8),
                       Text(
-                        'This can take a few seconds. No receipt data is uploaded.',
+                        usingAi
+                            ? 'Checking product rows, taxes, item count and the printed total.'
+                            : 'This can take a few seconds. No receipt data is uploaded.',
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -197,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   fontWeight: FontWeight.w800)),
                           const SizedBox(height: 12),
                           Text(
-                              'Photograph your receipt, read it privately on this device and keep a clean spending history.',
+                              'Use accurate AI recognition for difficult receipts, with private on-device scanning whenever you prefer.',
                               style: TextStyle(
                                   color: Colors.white.withValues(alpha: .82),
                                   fontSize: 16)),
@@ -209,9 +301,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                   backgroundColor: lime,
                                   foregroundColor: green,
                                   padding: const EdgeInsets.all(17)),
-                              onPressed: () => _capture(ImageSource.camera),
+                              onPressed: () => _capture(
+                                ImageSource.camera,
+                                aiEnhanced: true,
+                              ),
                               icon: const Icon(Icons.document_scanner_outlined),
-                              label: const Text('Scan grocery bill',
+                              label: const Text('AI scan grocery bill',
                                   style:
                                       TextStyle(fontWeight: FontWeight.w800)),
                             ),
@@ -224,9 +319,25 @@ class _HomeScreenState extends State<HomeScreen> {
                                   foregroundColor: Colors.white,
                                   side: const BorderSide(color: Colors.white38),
                                   padding: const EdgeInsets.all(16)),
-                              onPressed: () => _capture(ImageSource.gallery),
+                              onPressed: () => _capture(
+                                ImageSource.gallery,
+                                aiEnhanced: true,
+                              ),
                               icon: const Icon(Icons.photo_library_outlined),
-                              label: const Text('Choose from gallery'),
+                              label: const Text('AI scan from gallery'),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            width: double.infinity,
+                            child: TextButton.icon(
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(13),
+                              ),
+                              onPressed: _showPrivateScanOptions,
+                              icon: const Icon(Icons.lock_outline),
+                              label: const Text('Use private on-device reader'),
                             ),
                           ),
                         ],
@@ -461,6 +572,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         item.quantity = double.tryParse(quantity.text) ?? item.quantity;
         item.unitPrice = double.tryParse(price.text) ?? item.unitPrice;
         item.discount = double.tryParse(discount.text) ?? item.discount;
+        item.parsedLineTotal = null;
         item.confidence = 1;
       });
     }
@@ -479,23 +591,25 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: receipt.reconciled
+                color: receipt.confidentlyReconciled
                     ? const Color(0xFFE8F4D7)
                     : const Color(0xFFFFE8DA),
                 borderRadius: BorderRadius.circular(18),
               ),
               child: Row(children: [
                 Icon(
-                    receipt.reconciled
+                    receipt.confidentlyReconciled
                         ? Icons.verified_outlined
                         : Icons.warning_amber_rounded,
                     color: green),
                 const SizedBox(width: 12),
                 Expanded(
                     child: Text(
-                        receipt.reconciled
-                            ? 'Bill total matches'
-                            : 'Please review: difference ₹${receipt.difference.abs().toStringAsFixed(2)}',
+                        receipt.confidentlyReconciled
+                            ? 'AI-verified bill total matches'
+                            : receipt.reconciled
+                                ? 'Total matches, but highlighted details need review'
+                                : 'Please review: difference ₹${receipt.difference.abs().toStringAsFixed(2)}',
                         style: const TextStyle(fontWeight: FontWeight.w800))),
               ]),
             ),
@@ -506,6 +620,76 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               label: const Text('Edit store, date or printed total'),
             ),
             const SizedBox(height: 6),
+            if (receipt.isAiEnhanced) ...[
+              Card(
+                color: const Color(0xFFF0F6F2),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.auto_awesome, color: green),
+                          SizedBox(width: 8),
+                          Text(
+                            'AI Enhanced Scan',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          Chip(
+                            label: Text(
+                              '${(receipt.overallConfidence * 100).round()}% confidence',
+                            ),
+                          ),
+                          if (receipt.printedItemCount != null)
+                            Chip(
+                              label: Text(
+                                '${receipt.items.length}/${receipt.printedItemCount} product rows',
+                              ),
+                            ),
+                          if (receipt.printedQuantityTotal != null)
+                            Chip(
+                              label: Text(
+                                'Printed quantity ${receipt.printedQuantityTotal!.g}',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (receipt.warnings.isNotEmpty)
+                Card(
+                  color: const Color(0xFFFFF3CD),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Check these details',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 6),
+                        ...receipt.warnings.take(4).map(
+                              (warning) => Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text('• $warning'),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
             ...List.generate(receipt.items.length, (index) {
               final item = receipt.items[index];
               return Card(
@@ -532,6 +716,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               label: const Text('Add missing item'),
             ),
             const Divider(height: 28),
+            _total('Product subtotal', receipt.itemSubtotal),
+            if (receipt.taxTotal > 0) _total('Tax', receipt.taxTotal),
+            if (receipt.otherCharges > 0)
+              _total('Other charges', receipt.otherCharges),
+            if (receipt.billDiscount > 0)
+              _total('Bill discount', -receipt.billDiscount),
             _total('Printed bill total', receipt.printedTotal),
             _total('Calculated total', receipt.calculatedTotal, strong: true),
             const SizedBox(height: 18),

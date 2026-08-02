@@ -60,7 +60,9 @@ jobs:
           CARTSENSE_KEYSTORE_PASSWORD: ${{ secrets.CARTSENSE_KEYSTORE_PASSWORD }}
           CARTSENSE_KEY_ALIAS: ${{ secrets.CARTSENSE_KEY_ALIAS }}
           CARTSENSE_KEY_PASSWORD: ${{ secrets.CARTSENSE_KEY_PASSWORD }}
-        run: flutter build apk --release
+        run: >-
+          flutter build apk --release
+          --dart-define=CARTSENSE_AI_ENDPOINT=https://cartsense-ai-receipt.innoherb.chatgpt.site/api/receipt
 
       - name: Prepare and validate installable APK
         shell: bash
