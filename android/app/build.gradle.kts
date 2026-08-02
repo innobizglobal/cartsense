@@ -43,6 +43,11 @@ android {
             // GitHub secrets. Local builds fall back to Android's debug key.
             signingConfig = signingConfigs.findByName("cartsenseRelease")
                 ?: signingConfigs.getByName("debug")
+            // ML Kit discovers several runtime components through manifest
+            // metadata and reflection. Keep those components intact in this
+            // private beta build until device coverage is established.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

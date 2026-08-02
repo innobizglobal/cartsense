@@ -52,9 +52,43 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                val inputImage = InputImage.fromBitmap(bitmap, 0)
-                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-                recognizer.process(inputImage)
+                val inputImage = try {
+                    InputImage.fromBitmap(bitmap, 0)
+                } catch (error: Exception) {
+                    bitmap.recycle()
+                    result.error(
+                        "OCR_IMAGE_FAILED",
+                        error.message ?: error.javaClass.simpleName,
+                        null,
+                    )
+                    return@setMethodCallHandler
+                }
+
+                val recognizer = try {
+                    TextRecognition.getClient(TextRecognizerOptions.Builder().build())
+                } catch (error: Exception) {
+                    bitmap.recycle()
+                    result.error(
+                        "OCR_START_FAILED",
+                        error.message ?: error.javaClass.simpleName,
+                        null,
+                    )
+                    return@setMethodCallHandler
+                }
+
+                val recognitionTask = try {
+                    recognizer.process(inputImage)
+                } catch (error: Exception) {
+                    recognizer.close()
+                    bitmap.recycle()
+                    result.error(
+                        "OCR_PROCESS_FAILED",
+                        error.message ?: error.javaClass.simpleName,
+                        null,
+                    )
+                    return@setMethodCallHandler
+                }
+                recognitionTask
                     .addOnSuccessListener { recognized -> result.success(recognized.text) }
                     .addOnFailureListener { error ->
                         result.error("OCR_FAILED", error.message ?: error.javaClass.simpleName, null)
