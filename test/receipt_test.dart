@@ -25,6 +25,7 @@ void main() {
     final item = ReceiptItem(
         name: 'Milk', quantity: 1, unitPrice: 60, discount: 0, confidence: .7);
     expect(item.needsReview, isTrue);
+    expect(item.category, GroceryCategory.dairy);
   });
 
   test('AI receipt includes separate tax and requires real verification', () {
@@ -87,5 +88,6 @@ void main() {
     expect(decoded.taxTotal, 377.14);
     expect(decoded.items.single.parsedLineTotal, 90);
     expect(decoded.warnings, hasLength(1));
+    expect(decoded.items.single.category, GroceryCategory.dairy);
   });
 }

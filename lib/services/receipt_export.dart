@@ -9,11 +9,12 @@ class ReceiptExport {
 
   Future<void> shareCsv(Receipt receipt) async {
     final rows = <String>[
-      'Store,Date,Item,Quantity,Unit Price,Discount,Line Total,Confidence',
+      'Store,Date,Item,Category,Quantity,Unit Price,Discount,Line Total,Confidence',
       ...receipt.items.map((item) => [
             receipt.store,
             receipt.purchasedAt.toIso8601String(),
             item.name,
+            item.category,
             item.quantity,
             item.unitPrice.toStringAsFixed(2),
             item.discount.toStringAsFixed(2),

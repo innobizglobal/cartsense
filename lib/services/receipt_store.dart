@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/receipt.dart';
 
@@ -11,6 +13,7 @@ class ReceiptStore {
   }
 
   Future<void> save(Receipt receipt) async {
+    await _preserveReceiptImage(receipt);
     final prefs = await SharedPreferences.getInstance();
     final receipts = await load();
     receipts.removeWhere((existing) => existing.id == receipt.id);
@@ -21,13 +24,59 @@ class ReceiptStore {
     );
   }
 
+  Future<void> _preserveReceiptImage(Receipt receipt) async {
+    final sourcePath = receipt.imagePath;
+    if (sourcePath == null || sourcePath.isEmpty) return;
+    final source = File(sourcePath);
+    if (!await source.exists()) return;
+
+    final documents = await getApplicationDocumentsDirectory();
+    final directory = Directory(
+      '${documents.path}${Platform.pathSeparator}receipt-images',
+    );
+    await directory.create(recursive: true);
+    final lower = sourcePath.toLowerCase();
+    final extension = lower.endsWith('.png')
+        ? '.png'
+        : lower.endsWith('.webp')
+            ? '.webp'
+            : '.jpg';
+    final destination = File(
+      '${directory.path}${Platform.pathSeparator}${receipt.id}$extension',
+    );
+    if (source.absolute.path != destination.absolute.path) {
+      await source.copy(destination.path);
+      receipt.imagePath = destination.path;
+    }
+  }
+
   Future<void> delete(String receiptId) async {
     final prefs = await SharedPreferences.getInstance();
     final receipts = await load();
+    final removedImages = receipts
+        .where((receipt) => receipt.id == receiptId)
+        .map((receipt) => receipt.imagePath)
+        .whereType<String>()
+        .toList();
     receipts.removeWhere((receipt) => receipt.id == receiptId);
     await prefs.setStringList(
       _key,
       receipts.map((receipt) => receipt.encode()).toList(),
     );
+    if (removedImages.isNotEmpty) {
+      final documents = await getApplicationDocumentsDirectory();
+      final imageRoot = Directory(
+        '${documents.path}${Platform.pathSeparator}receipt-images',
+      ).absolute.path;
+      for (final path in removedImages) {
+        final image = File(path);
+        if (image.absolute.path.startsWith(
+              '$imageRoot${Platform.pathSeparator}',
+            ) &&
+            await image.exists()) {
+          await image.delete();
+        }
+      }
+    }
   }
 }

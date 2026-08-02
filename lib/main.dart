@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_receipt.dart';
 import 'models/receipt.dart';
+import 'models/spending_insights.dart';
 import 'services/receipt_export.dart';
 import 'services/ai_receipt_service.dart';
 import 'services/receipt_parser.dart';
@@ -53,14 +54,17 @@ class _HomeScreenState extends State<HomeScreen> {
   bool usingAi = false;
   String query = '';
 
+  SpendingInsights get monthlyInsights => SpendingInsights.forMonth(history);
+
   List<Receipt> get filteredHistory {
     final needle = query.trim().toLowerCase();
     if (needle.isEmpty) return history;
     return history
         .where((receipt) =>
             receipt.store.toLowerCase().contains(needle) ||
-            receipt.items
-                .any((item) => item.name.toLowerCase().contains(needle)))
+            receipt.items.any((item) =>
+                item.name.toLowerCase().contains(needle) ||
+                item.category.toLowerCase().contains(needle)))
         .toList();
   }
 
@@ -349,6 +353,51 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: const Icon(Icons.play_circle_outline),
                       label: const Text('Try a complete demo bill'),
                     ),
+                    if (monthlyInsights.billCount > 0) ...[
+                      const SizedBox(height: 18),
+                      Card(
+                        color: const Color(0xFFF0F6F2),
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.insights_outlined, color: green),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'This month',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.w800),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                '₹${monthlyInsights.total.toStringAsFixed(2)}',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineMedium
+                                    ?.copyWith(
+                                      color: green,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                              ),
+                              Text(
+                                '${monthlyInsights.billCount} saved ${monthlyInsights.billCount == 1 ? 'bill' : 'bills'}',
+                              ),
+                              if (monthlyInsights.topCategory != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Top category: ${monthlyInsights.topCategory} · ₹${monthlyInsights.topCategoryTotal.toStringAsFixed(2)}',
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 28),
                     Text('Recent bills',
                         style: Theme.of(context)
@@ -443,6 +492,26 @@ class ReceiptScreen extends StatefulWidget {
 class _ReceiptScreenState extends State<ReceiptScreen> {
   late Receipt receipt = widget.receipt;
 
+  bool get _hasReceiptImage {
+    final path = receipt.imagePath;
+    return path != null && path.isNotEmpty && File(path).existsSync();
+  }
+
+  Future<void> _showOriginalReceipt() async {
+    final path = receipt.imagePath;
+    if (path == null || !File(path).existsSync()) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ReceiptImageScreen(imagePath: path),
+      ),
+    );
+  }
+
+  Future<void> _reviewNextItem() async {
+    final index = receipt.items.indexWhere((item) => item.needsReview);
+    if (index >= 0) await _editItem(index);
+  }
+
   Future<void> _editDetails() async {
     final store = TextEditingController(text: receipt.store);
     final date = TextEditingController(
@@ -527,6 +596,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         TextEditingController(text: item.unitPrice.toStringAsFixed(2));
     final discount =
         TextEditingController(text: item.discount.toStringAsFixed(2));
+    var category = item.category;
     final action = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -548,6 +618,19 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 controller: discount,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(labelText: 'Discount')),
+            DropdownButtonFormField<String>(
+              initialValue: category,
+              decoration: const InputDecoration(labelText: 'Category'),
+              items: GroceryCategory.values
+                  .map((value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) category = value;
+              },
+            ),
           ]),
         ),
         actions: [
@@ -572,6 +655,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         item.quantity = double.tryParse(quantity.text) ?? item.quantity;
         item.unitPrice = double.tryParse(price.text) ?? item.unitPrice;
         item.discount = double.tryParse(discount.text) ?? item.discount;
+        item.category = category;
         item.parsedLineTotal = null;
         item.confidence = 1;
       });
@@ -614,6 +698,39 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               ]),
             ),
             const SizedBox(height: 14),
+            if (_hasReceiptImage) ...[
+              OutlinedButton.icon(
+                onPressed: _showOriginalReceipt,
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('View original receipt'),
+              ),
+              const SizedBox(height: 6),
+            ],
+            if (receipt.reviewItemCount > 0) ...[
+              Card(
+                color: const Color(0xFFFFF3CD),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.fact_check_outlined, color: green),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '${receipt.reviewItemCount} ${receipt.reviewItemCount == 1 ? 'item needs' : 'items need'} your review',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _reviewNextItem,
+                        child: const Text('Review next'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+            ],
             OutlinedButton.icon(
               onPressed: _editDetails,
               icon: const Icon(Icons.edit_note_outlined),
@@ -700,7 +817,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                   title: Text(item.name,
                       style: const TextStyle(fontWeight: FontWeight.w700)),
                   subtitle: Text(
-                      '${item.quantity.g} × ₹${item.unitPrice.toStringAsFixed(2)}  •  Discount ₹${item.discount.toStringAsFixed(2)}${item.needsReview ? '  •  REVIEW' : ''}'),
+                      '${item.quantity.g} × ₹${item.unitPrice.toStringAsFixed(2)}  •  Discount ₹${item.discount.toStringAsFixed(2)}\n${item.category}${item.needsReview ? '  •  REVIEW' : ''}'),
+                  isThreeLine: true,
                   trailing: Text('₹${item.total.toStringAsFixed(2)}'),
                 ),
               );
@@ -756,6 +874,44 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               style: TextStyle(
                   fontSize: strong ? 21 : 16, fontWeight: FontWeight.w800)),
         ]),
+      );
+}
+
+class ReceiptImageScreen extends StatelessWidget {
+  const ReceiptImageScreen({super.key, required this.imagePath});
+
+  final String imagePath;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          title: const Text('Original receipt'),
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+        ),
+        body: SafeArea(
+          child: Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 5,
+              boundaryMargin: const EdgeInsets.all(80),
+              child: Image.file(
+                File(imagePath),
+                semanticLabel: 'Original grocery receipt',
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'The original receipt image is no longer available.',
+                    style: TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       );
 }
 

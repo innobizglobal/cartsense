@@ -8,7 +8,8 @@ class ReceiptItem {
     required this.discount,
     required this.confidence,
     this.parsedLineTotal,
-  });
+    String? category,
+  }) : category = category ?? GroceryCategory.infer(name);
 
   String name;
   double quantity;
@@ -16,6 +17,7 @@ class ReceiptItem {
   double discount;
   double confidence;
   double? parsedLineTotal;
+  String category;
 
   double get total => parsedLineTotal ?? (quantity * unitPrice) - discount;
   bool get needsReview => confidence < 0.8;
@@ -27,6 +29,7 @@ class ReceiptItem {
         'discount': discount,
         'confidence': confidence,
         'parsedLineTotal': parsedLineTotal,
+        'category': category,
       };
 
   factory ReceiptItem.fromJson(Map<String, dynamic> json) => ReceiptItem(
@@ -36,7 +39,68 @@ class ReceiptItem {
         discount: (json['discount'] as num?)?.toDouble() ?? 0,
         confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
         parsedLineTotal: (json['parsedLineTotal'] as num?)?.toDouble(),
+        category: json['category']?.toString(),
       );
+}
+
+class GroceryCategory {
+  static const produce = 'Fruit & vegetables';
+  static const dairy = 'Dairy & chilled';
+  static const pantry = 'Pantry staples';
+  static const beverages = 'Beverages';
+  static const snacks = 'Snacks & sweets';
+  static const household = 'Household';
+  static const personalCare = 'Personal care';
+  static const other = 'Other';
+
+  static const values = [
+    produce,
+    dairy,
+    pantry,
+    beverages,
+    snacks,
+    household,
+    personalCare,
+    other,
+  ];
+
+  static String infer(String productName) {
+    final name = productName.toLowerCase();
+    if (RegExp(r'\b(milk|paneer|curd|yogurt|cheese|butter|ghee|cream)\b')
+        .hasMatch(name)) {
+      return dairy;
+    }
+    if (RegExp(
+            r'\b(apple|banana|mango|orange|grape|tomato|onion|potato|carrot|vegetable|fruit)\b')
+        .hasMatch(name)) {
+      return produce;
+    }
+    if (RegExp(
+            r'\b(rice|atta|flour|dal|pulse|oil|salt|sugar|masala|spice|ragi)\b')
+        .hasMatch(name)) {
+      return pantry;
+    }
+    if (RegExp(r'\b(tea|coffee|juice|water|cola|limca|thums|drink)\b')
+        .hasMatch(name)) {
+      return beverages;
+    }
+    if (RegExp(
+            r'\b(biscuit|cookie|chips|chocolate|candy|sweet|namkeen|snack)\b')
+        .hasMatch(name)) {
+      return snacks;
+    }
+    if (RegExp(
+            r'\b(detergent|clean|dish|match|safe|floor|toilet|tissue|ariel|vim|comfort)\b')
+        .hasMatch(name)) {
+      return household;
+    }
+    if (RegExp(
+            r'\b(soap|shampoo|tooth|paste|brush|cream|lotion|dove|deodorant)\b')
+        .hasMatch(name)) {
+      return personalCare;
+    }
+    return other;
+  }
 }
 
 class Receipt {
@@ -86,6 +150,8 @@ class Receipt {
       itemCountMatches &&
       overallConfidence >= 0.82 &&
       items.every((item) => item.confidence >= 0.7);
+  int get reviewItemCount => items.where((item) => item.needsReview).length;
+  bool get reviewComplete => reviewItemCount == 0;
 
   Map<String, dynamic> toJson() => {
         'id': id,
