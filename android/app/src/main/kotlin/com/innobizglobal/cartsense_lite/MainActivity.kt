@@ -3,8 +3,10 @@ package com.innobizglobal.cartsense_lite
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.media.ExifInterface
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import io.flutter.embedding.android.FlutterActivity
@@ -15,7 +17,27 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     companion object {
         private const val OCR_CHANNEL = "cartsense/receipt_ocr"
-        private const val MAX_RECEIPT_PIXELS = 8_000_000L
+        private const val MAX_RECEIPT_PIXELS = 12_500_000L
+    }
+
+    private data class OcrSegment(val text: String, val bounds: Rect)
+
+    private class OcrRow(first: OcrSegment) {
+        val segments = mutableListOf(first)
+        var top = first.bounds.top
+        var bottom = first.bounds.bottom
+
+        val centerY: Float
+            get() = (top + bottom) / 2f
+
+        val height: Int
+            get() = (bottom - top).coerceAtLeast(1)
+
+        fun add(segment: OcrSegment) {
+            segments.add(segment)
+            top = minOf(top, segment.bounds.top)
+            bottom = maxOf(bottom, segment.bounds.bottom)
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -89,7 +111,9 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
                 recognitionTask
-                    .addOnSuccessListener { recognized -> result.success(recognized.text) }
+                    .addOnSuccessListener { recognized ->
+                        result.success(buildReceiptRows(recognized))
+                    }
                     .addOnFailureListener { error ->
                         result.error("OCR_FAILED", error.message ?: error.javaClass.simpleName, null)
                     }
@@ -97,6 +121,46 @@ class MainActivity : FlutterActivity() {
                         recognizer.close()
                         bitmap.recycle()
                     }
+            }
+    }
+
+    private fun buildReceiptRows(recognized: Text): String {
+        val segments = recognized.textBlocks
+            .flatMap { it.lines }
+            .mapNotNull { line ->
+                val bounds = line.boundingBox ?: return@mapNotNull null
+                line.text.trim().takeIf { it.isNotEmpty() }?.let { OcrSegment(it, bounds) }
+            }
+            .sortedWith(compareBy<OcrSegment> { it.bounds.top }.thenBy { it.bounds.left })
+        if (segments.isEmpty()) return recognized.text
+
+        val rows = mutableListOf<OcrRow>()
+        for (segment in segments) {
+            val segmentHeight = segment.bounds.height().coerceAtLeast(1)
+            val segmentCenter = segment.bounds.exactCenterY()
+            val row = rows
+                .filter { candidate ->
+                    val overlap = minOf(candidate.bottom, segment.bounds.bottom) -
+                        maxOf(candidate.top, segment.bounds.top)
+                    val enoughOverlap = overlap >= minOf(candidate.height, segmentHeight) * 0.35f
+                    val closeCenters = kotlin.math.abs(candidate.centerY - segmentCenter) <=
+                        maxOf(candidate.height, segmentHeight) * 0.45f
+                    enoughOverlap || closeCenters
+                }
+                .minByOrNull { kotlin.math.abs(it.centerY - segmentCenter) }
+            if (row == null) {
+                rows.add(OcrRow(segment))
+            } else {
+                row.add(segment)
+            }
+        }
+
+        return rows
+            .sortedBy { it.top }
+            .joinToString("\n") { row ->
+                row.segments
+                    .sortedBy { it.bounds.left }
+                    .joinToString("  ") { it.text }
             }
     }
 

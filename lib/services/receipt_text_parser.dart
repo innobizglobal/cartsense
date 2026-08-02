@@ -11,8 +11,15 @@ class ReceiptTextParser {
   );
   static final _letters = RegExp(r'[A-Za-z]');
   static final _nonItemWords = RegExp(
-    r'\b(sub\s*total|grand\s*total|total|tax|gst|cgst|sgst|igst|amount|cash|change|round(?:ing)?|saving|discount|balance|tender|payment|invoice|receipt|bill\s*no|phone|mobile|fssai|date|time)\b',
+    r'\b(sub\s*total|grand\s*total|total|tax|gst|gstin|cgst|sgst|igst|amount|cash|change|round(?:ing)?|saving|discount|balance|tender|payment|invoice|receipt|bill\s*no|phone|mobile|fssai|date|time|it[ea][mn]s?|particulars?|description|qty|quantity|rate|mrp|hsn|sac|barcode|sku|article|cashier|customer|member|loyalty|address|pincode|website|email|thank\s*you)\b',
     caseSensitive: false,
+  );
+  static final _administrativeFragments = RegExp(
+    r'(telangana|andhra\s*pradesh|karnataka|tamil\s*nadu|maharashtra|www\.|https?://|@\w+\.\w+|(?:inv|von)\s*[:.#-]?\s*no)',
+    caseSensitive: false,
+  );
+  static final _longIdentifier = RegExp(
+    r'\b(?=[A-Za-z0-9]{7,}\b)(?=(?:[A-Za-z]*\d){5})[A-Za-z0-9]+\b',
   );
 
   Receipt parse(
@@ -25,10 +32,17 @@ class ReceiptTextParser {
         .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
         .where((line) => line.isNotEmpty)
         .toList();
+    final printedTotal = _findPrintedTotal(lines);
+    final itemHeaderIndex = lines.indexWhere(_isItemHeader);
     final items = <ReceiptItem>[];
+    String? pendingName;
 
-    for (final line in lines) {
+    for (var index = itemHeaderIndex < 0 ? 0 : itemHeaderIndex + 1;
+        index < lines.length;
+        index++) {
+      final line = lines[index];
       final lower = line.toLowerCase();
+      if (items.isNotEmpty && _isSummaryStart(lower)) break;
       if (_isDiscountLine(lower)) {
         final discount = _lastAmount(line);
         if (discount != null && discount > 0 && items.isNotEmpty) {
@@ -36,15 +50,35 @@ class ReceiptTextParser {
           items.last.confidence =
               items.last.confidence.clamp(0, 0.78).toDouble();
         }
+        pendingName = null;
         continue;
       }
-      final item = _parseItem(line);
-      if (item != null) items.add(item);
+      if (_isAdministrativeLine(line)) {
+        pendingName = null;
+        continue;
+      }
+
+      var item = _parseItem(line, printedTotal: printedTotal);
+      if (item == null && pendingName != null) {
+        item = _parseItem(
+          '$pendingName $line',
+          printedTotal: printedTotal,
+        );
+      }
+      if (item != null) {
+        items.add(item);
+        pendingName = null;
+      } else if ((itemHeaderIndex >= 0 || items.isNotEmpty) &&
+          _isPossibleProductName(line)) {
+        pendingName = line;
+      } else {
+        pendingName = null;
+      }
     }
 
     final calculatedTotal =
         items.fold<double>(0, (sum, item) => sum + item.total);
-    final printedTotal = _findPrintedTotal(lines) ?? calculatedTotal;
+    final resolvedPrintedTotal = printedTotal ?? calculatedTotal;
     final timestamp = now ?? DateTime.now();
 
     return Receipt(
@@ -52,14 +86,17 @@ class ReceiptTextParser {
       store: _findStore(lines),
       purchasedAt: _findDate(lines) ?? timestamp,
       items: items,
-      printedTotal: printedTotal,
+      printedTotal: resolvedPrintedTotal,
       imagePath: imagePath,
     );
   }
 
-  ReceiptItem? _parseItem(String source) {
-    var line = source.replaceFirst(RegExp(r'^\s*\d{4,}\s+'), '');
-    if (_nonItemWords.hasMatch(line)) return null;
+  ReceiptItem? _parseItem(String source, {double? printedTotal}) {
+    var line = source
+        .replaceFirst(RegExp(r'^\s*(?:\d{4,14}|\d{1,3}[.)-])\s+'), '')
+        .replaceFirst(RegExp(r'^\s*\d{1,3}\s+(?=[A-Za-z])'), '')
+        .trim();
+    if (_isAdministrativeLine(line)) return null;
 
     final matches = _amountPattern.allMatches(line).toList();
     if (matches.isEmpty) return null;
@@ -71,7 +108,7 @@ class ReceiptTextParser {
         .replaceAll(RegExp(r'[-:*]+$'), '')
         .replaceAll(RegExp(r'\s+[xX]$'), '')
         .trim();
-    if (name.length < 2 || !_letters.hasMatch(name)) return null;
+    if (!_isPlausibleProductName(name)) return null;
 
     final values = matches
         .map((match) => _toAmount(match.group(1)!))
@@ -80,7 +117,16 @@ class ReceiptTextParser {
     if (values.isEmpty) return null;
 
     final lineTotal = values.last.abs();
-    if (lineTotal <= 0) return null;
+    final rawLineTotal = last.group(1)!.replaceAll(RegExp(r'[-,]'), '');
+    final maximumFromBill = printedTotal == null
+        ? 100000.0
+        : (printedTotal * 1.5 < 100 ? 100.0 : printedTotal * 1.5);
+    if (lineTotal <= 0 ||
+        lineTotal > 100000 ||
+        lineTotal > maximumFromBill ||
+        (!rawLineTotal.contains('.') && rawLineTotal.length >= 6)) {
+      return null;
+    }
 
     var quantity = 1.0;
     var unitPrice = lineTotal;
@@ -91,7 +137,8 @@ class ReceiptTextParser {
       final proposedTotal = proposedQuantity * proposedUnitPrice;
       final tolerance = (lineTotal * 0.04).clamp(0.10, 1.00);
       if (proposedQuantity > 0 &&
-          proposedQuantity <= 999 &&
+          proposedQuantity <= 100 &&
+          proposedUnitPrice > 0 &&
           (proposedTotal - lineTotal).abs() <= tolerance) {
         quantity = proposedQuantity;
         unitPrice = proposedUnitPrice;
@@ -100,7 +147,7 @@ class ReceiptTextParser {
     } else if (values.length == 2 &&
         RegExp(r'\b\d+(?:\.\d+)?\s*[xX]\s*').hasMatch(line)) {
       final proposedQuantity = values.first;
-      if (proposedQuantity > 0 && proposedQuantity <= 999) {
+      if (proposedQuantity > 0 && proposedQuantity <= 100) {
         quantity = proposedQuantity;
         unitPrice = lineTotal / quantity;
         confidence = 0.84;
@@ -116,8 +163,49 @@ class ReceiptTextParser {
     );
   }
 
+  bool _isItemHeader(String line) {
+    final lower = line.toLowerCase();
+    return RegExp(r'\b(it[ea][mn]s?|particulars?|description|products?)\b')
+            .hasMatch(lower) &&
+        !_isDiscountLine(lower);
+  }
+
+  bool _isSummaryStart(String lower) => RegExp(
+        r'\b(sub\s*total|grand\s*total|net\s*(?:amount|total)|amount\s*payable|taxable\s*amount|payment\s*summary)\b',
+      ).hasMatch(lower);
+
+  bool _isAdministrativeLine(String line) =>
+      _nonItemWords.hasMatch(line) ||
+      _administrativeFragments.hasMatch(line) ||
+      _longIdentifier.hasMatch(line);
+
+  bool _isPossibleProductName(String line) =>
+      !_amountPattern.hasMatch(line) &&
+      !_datePattern.hasMatch(line) &&
+      _isPlausibleProductName(line);
+
+  bool _isPlausibleProductName(String name) {
+    if (name.length < 3 || name.length > 80 || !_letters.hasMatch(name)) {
+      return false;
+    }
+    final letterCount = _letters.allMatches(name).length;
+    if (letterCount < 3 || _longIdentifier.hasMatch(name)) return false;
+    final meaningfulCount = RegExp(r'[A-Za-z0-9]').allMatches(name).length;
+    if (meaningfulCount == 0 || letterCount / meaningfulCount < 0.5) {
+      return false;
+    }
+    if (RegExp(r'^\d').hasMatch(name) && letterCount < 4) return false;
+    return true;
+  }
+
   String _findStore(List<String> lines) {
-    for (final line in lines.take(8)) {
+    final headerIndex = lines.indexWhere(_isItemHeader);
+    final candidates = lines.take(
+      headerIndex > 0 && headerIndex < 12 ? headerIndex : 10,
+    );
+    String? best;
+    var bestScore = -1;
+    for (final line in candidates) {
       final lower = line.toLowerCase();
       if (line.length < 3 ||
           line.length > 48 ||
@@ -125,14 +213,28 @@ class ReceiptTextParser {
           _amountPattern.hasMatch(line) ||
           _datePattern.hasMatch(line) ||
           RegExp(
-            r'\b(invoice|receipt|tax|gstin|fssai|phone|mobile|address|cashier|date|time|bill)\b',
+            r'\b(invoice|receipt|tax|gstin|fssai|phone|mobile|address|cashier|date|time|bill|welcome|thank)\b',
             caseSensitive: false,
-          ).hasMatch(lower)) {
+          ).hasMatch(lower) ||
+          _administrativeFragments.hasMatch(lower) ||
+          _longIdentifier.hasMatch(line)) {
         continue;
       }
-      return _titleCase(line);
+      final letterCount = _letters.allMatches(line).length;
+      final wordCount = line.split(' ').where((word) => word.isNotEmpty).length;
+      var score = letterCount + (wordCount * 4);
+      if (RegExp(
+        r'\b(mart|market|supermarket|stores?|bazaar|basket|fresh|retail|hyper)\b',
+        caseSensitive: false,
+      ).hasMatch(line)) {
+        score += 30;
+      }
+      if (score > bestScore) {
+        best = line;
+        bestScore = score;
+      }
     }
-    return 'Scanned grocery bill';
+    return best == null ? 'Scanned grocery bill' : _titleCase(best);
   }
 
   DateTime? _findDate(List<String> lines) {

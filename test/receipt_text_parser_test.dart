@@ -62,4 +62,56 @@ TOTAL 85.00
     expect(receipt.printedTotal, 42);
     expect(receipt.items.single.name, 'Bread');
   });
+
+  test('rejects receipt metadata and absurd OCR amounts', () {
+    final receipt = parser.parse(
+      '''
+KIRANA FRESH MART
+ITENS 23
+INV NO 9
+HYDERABAD TELANGANA 500037
+3pr 1458.78
+1 HERITAGE PANEER 200g 0406 1 200.00 200.00
+NISPER BINDAZZ NDRGW TO N2
+1 344.00 344.00
+DABUR GLUCOSE 200g 1 100.00 100.00
+SUB TOTAL 644.00
+CGST 0.00
+GRAND TOTAL 644.00
+''',
+      now: DateTime(2026, 8, 3),
+    );
+
+    expect(receipt.store, 'Kirana Fresh Mart');
+    expect(receipt.items, hasLength(3));
+    expect(
+      receipt.items.map((item) => item.name),
+      [
+        'HERITAGE PANEER 200g',
+        'NISPER BINDAZZ NDRGW TO N2',
+        'DABUR GLUCOSE 200g',
+      ],
+    );
+    expect(receipt.items.map((item) => item.total), [200, 344, 100]);
+    expect(receipt.printedTotal, 644);
+    expect(receipt.reconciled, isTrue);
+  });
+
+  test('keeps product codes with weights but rejects long mixed identifiers',
+      () {
+    final receipt = parser.parse(
+      '''
+VALUE STORE
+PRODUCT QTY RATE AMOUNT
+GLUCOSE500GM 1 75.00 75.00
+xGb 390741o AMBICA 450.00
+TOTAL 75.00
+''',
+      now: DateTime(2026, 8, 3),
+    );
+
+    expect(receipt.items, hasLength(1));
+    expect(receipt.items.single.name, 'GLUCOSE500GM');
+    expect(receipt.items.single.total, 75);
+  });
 }
