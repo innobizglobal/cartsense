@@ -13,14 +13,9 @@ import 'services/receipt_export.dart';
 import 'services/ai_receipt_service.dart';
 import 'services/receipt_parser.dart';
 import 'services/receipt_store.dart';
-import 'services/shopping_reminder_service.dart';
 import 'services/shopping_list_store.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await ShoppingReminderService.instance.initialize();
-  runApp(const CartSenseApp());
-}
+void main() => runApp(const CartSenseApp());
 
 const green = Color(0xFF174C3C);
 const lime = Color(0xFFB8E05A);
