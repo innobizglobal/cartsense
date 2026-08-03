@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../services/budget_store.dart';
+import '../services/language_store.dart';
 import '../services/receipt_export.dart';
 import '../services/receipt_store.dart';
 import '../theme/cartsense_theme.dart';
@@ -34,6 +35,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   final _budgetStore = BudgetStore();
   final _receiptStore = ReceiptStore();
   late List<Receipt> _receipts = widget.receipts;
+  AppLanguage language = AppLanguage.english;
   double budget = 0;
 
   SavingsIntelligence get insights =>
@@ -42,6 +44,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   @override
   void initState() {
     super.initState();
+    _loadLanguage();
     _loadBudget();
     _loadReceipts();
   }
@@ -54,6 +57,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
       _loadReceipts();
     }
   }
+
+  Future<void> _loadLanguage() async {
+    final saved = await LanguageStore().load();
+    if (mounted) setState(() => language = saved);
+  }
+
+  String t(String key) => appText(language.code, key);
 
   Future<void> _loadBudget() async {
     final value = await _budgetStore.load();
@@ -201,10 +211,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return Scaffold(
       backgroundColor: _ivory,
       appBar: AppBar(
-        title: const Text('Insights'),
+        title: Text(t('insights')),
         actions: [
           IconButton(
-            tooltip: 'Export report',
+            tooltip: t('exportGroceryReport'),
             onPressed: _showReportExportOptions,
             icon: const Icon(Icons.ios_share_outlined),
           ),
@@ -217,12 +227,12 @@ class _InsightsScreenState extends State<InsightsScreen> {
             color: CartSenseColors.surface,
             child: ListTile(
               leading: const Icon(Icons.file_download_outlined, color: _green),
-              title: const Text(
-                'Export grocery report',
-                style: TextStyle(fontWeight: FontWeight.w900),
+              title: Text(
+                t('exportGroceryReport'),
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
-              subtitle: const Text(
-                'CSV, PDF, WhatsApp summary, category chart or full backup bundle.',
+              subtitle: Text(
+                t('exportGroceryReportBody'),
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: _showReportExportOptions,
@@ -236,14 +246,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(
+                  Row(
                     children: [
-                      Icon(Icons.account_balance_wallet_outlined,
+                      const Icon(Icons.account_balance_wallet_outlined,
                           color: Colors.white70, size: 19),
-                      SizedBox(width: 7),
+                      const SizedBox(width: 7),
                       Text(
-                        'Grocery spend this month',
-                        style: TextStyle(color: Colors.white70),
+                        t('grocerySpendMonth'),
+                        style: const TextStyle(color: Colors.white70),
                       ),
                     ],
                   ),
@@ -273,14 +283,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
                               ? budgetProgress <= 1
                                   ? '₹${(budget - data.currentMonthTotal).toStringAsFixed(0)} remaining of ₹${budget.toStringAsFixed(0)}'
                                   : '₹${(data.currentMonthTotal - budget).toStringAsFixed(0)} over your ₹${budget.toStringAsFixed(0)} budget'
-                              : 'Set a budget to track monthly spending',
+                              : t('setBudget'),
                           style: const TextStyle(color: Colors.white),
                         ),
                       ),
                       TextButton(
                         onPressed: _editBudget,
                         style: TextButton.styleFrom(foregroundColor: _lime),
-                        child: Text(budget > 0 ? 'Edit' : 'Set budget'),
+                        child: Text(budget > 0 ? t('edit') : t('setBudget')),
                       ),
                     ],
                   ),
@@ -298,7 +308,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               Expanded(
                 child: _MetricTile(
                   icon: Icons.receipt_long_outlined,
-                  label: 'Saved bills',
+                  label: t('savedBills'),
                   value: '${_receipts.length}',
                   color: CartSenseColors.surface,
                 ),
@@ -307,7 +317,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               Expanded(
                 child: _MetricTile(
                   icon: Icons.savings_outlined,
-                  label: 'Possible saving',
+                  label: t('possibleSaving'),
                   value: '₹${data.possibleBasketSaving.toStringAsFixed(0)}',
                   color: CartSenseColors.success,
                 ),
@@ -315,14 +325,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.auto_graph_outlined,
-            title: 'Spending alerts',
+            title: t('spendingAlerts'),
           ),
           const SizedBox(height: 10),
           if (categoryAlerts.isEmpty)
-            const _EmptyCard(
-              'Scan another month of bills to see category increase alerts.',
+            _EmptyCard(
+              t('scanAnotherMonth'),
             )
           else
             ...categoryAlerts.take(5).map((alert) => Card(
@@ -343,13 +353,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   ),
                 )),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.show_chart,
-            title: 'Spending trend',
+            title: t('spendingTrend'),
           ),
           const SizedBox(height: 10),
           if (maximumMonth == 0)
-            const _EmptyCard('Save bills to start seeing spending trends.')
+            _EmptyCard(t('saveBillsTrend'))
           else
             Card(
               child: Padding(
@@ -391,17 +401,17 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
             ),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.category_outlined,
-            title: 'Category spend',
+            title: t('categorySpend'),
           ),
           Text(
-            showingAllCategories ? 'All saved bills' : 'This month',
+            showingAllCategories ? t('allSavedBills') : t('thisMonth'),
             style: const TextStyle(color: CartSenseColors.textMuted),
           ),
           const SizedBox(height: 10),
           if (categories.isEmpty)
-            const _EmptyCard('Categories will appear after you save a bill.')
+            _EmptyCard(t('categoriesAppear'))
           else
             _ThinScrollableCard(
               rowCount: categories.length,
@@ -419,13 +429,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   .toList(),
             ),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.store_mall_directory_outlined,
-            title: 'Store comparison',
+            title: t('storeComparison'),
           ),
           const SizedBox(height: 10),
           if (storeTotals.isEmpty)
-            const _EmptyCard('Store spend appears after you save receipts.')
+            _EmptyCard(t('storeSpendAppears'))
           else
             ...storeTotals.take(5).map((store) => Card(
                   child: ListTile(
@@ -445,13 +455,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   ),
                 )),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.local_fire_department_outlined,
-            title: 'Top expensive products',
+            title: t('topExpensiveProducts'),
           ),
           const SizedBox(height: 10),
           if (expensiveItems.isEmpty)
-            const _EmptyCard('Product spend ranking appears after scans.')
+            _EmptyCard(t('productRankingAppears'))
           else
             _ThinScrollableCard(
               rowCount: expensiveItems.length,
@@ -477,13 +487,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   .toList(),
             ),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.trending_up,
-            title: 'Price changes',
+            title: t('priceChanges'),
           ),
           const SizedBox(height: 10),
           if (data.priceRises.isEmpty)
-            const _EmptyCard('No repeated product price rises found yet.')
+            _EmptyCard(t('noPriceRises'))
           else
             ...data.priceRises.take(8).map((item) => Card(
                   color: CartSenseColors.warning,
@@ -501,14 +511,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   ),
                 )),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.trending_down,
-            title: 'Price drops',
+            title: t('priceDrops'),
           ),
           const SizedBox(height: 10),
           if (data.priceDrops.isEmpty)
-            const _EmptyCard(
-                'Price drops will appear when repeated products get cheaper.')
+            _EmptyCard(t('priceDropsAppear'))
           else
             ...data.priceDrops.take(8).map((item) => Card(
                   color: CartSenseColors.success,
@@ -528,14 +537,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   ),
                 )),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.storefront_outlined,
-            title: 'Better prices nearby',
+            title: t('betterPricesNearby'),
           ),
           const SizedBox(height: 10),
           if (data.cheaperStoreOptions.isEmpty)
-            const _EmptyCard(
-              'Scan bills from more than one store to compare prices.',
+            _EmptyCard(
+              t('scanMoreStores'),
             )
           else
             ...data.cheaperStoreOptions.take(8).map((item) => Card(
@@ -556,14 +565,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   ),
                 )),
           const SizedBox(height: 20),
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.replay_outlined,
-            title: 'Buy again soon',
+            title: t('buyAgainSoon'),
           ),
           const SizedBox(height: 10),
           if (dueProducts.isEmpty)
-            const _EmptyCard(
-              'Repeated products will appear here when CartSense predicts they may be due again.',
+            _EmptyCard(
+              t('repeatedProductsAppear'),
             )
           else
             ...dueProducts.map((item) => Card(
@@ -582,6 +591,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       bottomNavigationBar: CartSenseFooterNav(
         selectedIndex: 3,
         activeShoppingCount: widget.activeShoppingCount,
+        languageCode: language.code,
         onDestinationSelected: (index) {
           if (index == 0) {
             Navigator.of(context).popUntil((route) => route.isFirst);

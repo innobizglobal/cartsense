@@ -770,14 +770,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Row(
+                              Row(
                                 children: [
-                                  Icon(Icons.insights_outlined, color: green),
-                                  SizedBox(width: 8),
+                                  const Icon(Icons.insights_outlined,
+                                      color: green),
+                                  const SizedBox(width: 8),
                                   Text(
-                                    'This month',
-                                    style:
-                                        TextStyle(fontWeight: FontWeight.w800),
+                                    t('thisMonth'),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w800),
                                   ),
                                 ],
                               ),
@@ -836,6 +837,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                     if (history.isEmpty)
                       _HomeEmptyState(
+                        languageCode: language.code,
                         onScan: _showCheckoutScanOptions,
                         onPlan: _openShoppingAssistant,
                         onDemo: () => _open(createDemoReceipt()),
@@ -1591,14 +1593,18 @@ class _HomeSectionTitle extends StatelessWidget {
 
 class _HomeEmptyState extends StatelessWidget {
   const _HomeEmptyState({
+    required this.languageCode,
     required this.onScan,
     required this.onPlan,
     required this.onDemo,
   });
 
+  final String languageCode;
   final VoidCallback onScan;
   final VoidCallback onPlan;
   final VoidCallback onDemo;
+
+  String t(String key) => appText(languageCode, key);
 
   @override
   Widget build(BuildContext context) => Card(
@@ -1617,21 +1623,22 @@ class _HomeEmptyState extends StatelessWidget {
                     color: green, size: 30),
               ),
               const SizedBox(height: 14),
-              const Text(
-                'No receipts yet',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+              Text(
+                t('noReceiptsYet'),
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 5),
-              const Text(
-                'Scan your first grocery receipt to start tracking prices and spending.',
+              Text(
+                t('scanFirstReceiptBody'),
                 textAlign: TextAlign.center,
-                style: TextStyle(color: CartSenseColors.textMuted),
+                style: const TextStyle(color: CartSenseColors.textMuted),
               ),
               const SizedBox(height: 18),
               FilledButton.icon(
                 onPressed: onScan,
                 icon: const Icon(Icons.document_scanner_outlined),
-                label: const Text('Scan first receipt'),
+                label: Text(t('scanFirstReceipt')),
               ),
               const SizedBox(height: 8),
               Row(
@@ -1640,7 +1647,7 @@ class _HomeEmptyState extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: onPlan,
                       icon: const Icon(Icons.shopping_basket_outlined),
-                      label: const Text('Plan list'),
+                      label: Text(t('planList')),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1648,7 +1655,7 @@ class _HomeEmptyState extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: onDemo,
                       icon: const Icon(Icons.science_outlined),
-                      label: const Text('Try demo'),
+                      label: Text(t('tryDemo')),
                     ),
                   ),
                 ],

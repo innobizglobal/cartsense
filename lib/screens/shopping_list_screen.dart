@@ -433,8 +433,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              const Text('Possible saving',
-                                  style: TextStyle(color: Colors.white70)),
+                              Text(t('possibleSaving'),
+                                  style:
+                                      const TextStyle(color: Colors.white70)),
                               Text(
                                 '₹${possibleSaving.toStringAsFixed(2)}',
                                 style: const TextStyle(
@@ -532,9 +533,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'How to use Shopping Assistant',
-                          style: TextStyle(
+                        Text(
+                          t('howShoppingAssistant'),
+                          style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w900,
                           ),
@@ -542,18 +543,18 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         const SizedBox(height: 12),
                         _workflowStep(
                           Icons.edit_note_outlined,
-                          '1. Plan',
-                          'Add products before you leave. Your list is saved on this phone.',
+                          t('planStep'),
+                          t('planStepBody'),
                         ),
                         _workflowStep(
                           Icons.storefront_outlined,
-                          '2. Shop',
-                          'Open this list in the store and tick items as you put them in the cart.',
+                          t('shopStep'),
+                          t('shopStepBody'),
                         ),
                         _workflowStep(
                           Icons.document_scanner_outlined,
-                          '3. Scan & reconcile',
-                          'After checkout, scan the bill. CartSense will mark bought, missed and extra items.',
+                          t('reconcileStep'),
+                          t('reconcileStepBody'),
                           isLast: true,
                         ),
                       ],
@@ -570,8 +571,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                     }
                   },
                   decoration: InputDecoration(
-                    labelText: 'Add a product',
-                    hintText: 'Tea, milk, oil or a brand',
+                    labelText: t('addProductField'),
+                    hintText: t('addProductHint'),
                     prefixIcon: const Icon(Icons.add_shopping_cart_outlined),
                     suffixIcon: queryController.text.trim().isEmpty
                         ? IconButton(
@@ -709,12 +710,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                 const SizedBox(height: 20),
                 _sectionTitle(Icons.checklist, t('productsToBuy')),
                 if (items.isEmpty)
-                  const Card(
+                  Card(
                     child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Text(
-                        'Add tea, milk, oil or any product above. CartSense saves the list here so you can open it at the store and tick items while shopping.',
-                      ),
+                      padding: const EdgeInsets.all(20),
+                      child: Text(t('emptyShoppingList')),
                     ),
                   )
                 else

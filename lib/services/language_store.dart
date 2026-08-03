@@ -156,6 +156,57 @@ const _translations = {
     'clearProductMemory': 'Clear product memory',
     'about': 'About',
     'showAppGuide': 'Show app guide',
+    'howShoppingAssistant': 'How to use Shopping Assistant',
+    'planStep': '1. Plan',
+    'planStepBody':
+        'Add products before you leave. Your list is saved on this phone.',
+    'shopStep': '2. Shop',
+    'shopStepBody':
+        'Open this list in the store and tick items as you put them in the cart.',
+    'reconcileStep': '3. Scan & reconcile',
+    'reconcileStepBody':
+        'After checkout, scan the bill. CartSense will mark bought, missed and extra items.',
+    'addProductField': 'Add a product',
+    'addProductHint': 'Tea, milk, oil or a brand',
+    'emptyShoppingList':
+        'Add tea, milk, oil or any product above. CartSense saves the list here so you can open it at the store and tick items while shopping.',
+    'noReceiptsYet': 'No receipts yet',
+    'scanFirstReceiptBody':
+        'Scan your first grocery receipt to start tracking prices and spending.',
+    'scanFirstReceipt': 'Scan first receipt',
+    'planList': 'Plan list',
+    'tryDemo': 'Try demo',
+    'exportGroceryReport': 'Export grocery report',
+    'exportGroceryReportBody':
+        'CSV, PDF, WhatsApp summary, category chart or full backup bundle.',
+    'grocerySpendMonth': 'Grocery spend this month',
+    'setBudget': 'Set budget',
+    'edit': 'Edit',
+    'savedBills': 'Saved bills',
+    'possibleSaving': 'Possible saving',
+    'spendingAlerts': 'Spending alerts',
+    'spendingTrend': 'Spending trend',
+    'categorySpend': 'Category spend',
+    'thisMonth': 'This month',
+    'allSavedBills': 'All saved bills',
+    'storeComparison': 'Store comparison',
+    'topExpensiveProducts': 'Top expensive products',
+    'priceChanges': 'Price changes',
+    'priceDrops': 'Price drops',
+    'betterPricesNearby': 'Better prices nearby',
+    'buyAgainSoon': 'Buy again soon',
+    'scanAnotherMonth':
+        'Scan another month of bills to see category increase alerts.',
+    'saveBillsTrend': 'Save bills to start seeing spending trends.',
+    'categoriesAppear': 'Categories will appear after you save a bill.',
+    'storeSpendAppears': 'Store spend appears after you save receipts.',
+    'productRankingAppears': 'Product spend ranking appears after scans.',
+    'noPriceRises': 'No repeated product price rises found yet.',
+    'priceDropsAppear':
+        'Price drops will appear when repeated products get cheaper.',
+    'scanMoreStores': 'Scan bills from more than one store to compare prices.',
+    'repeatedProductsAppear':
+        'Repeated products will appear here when CartSense predicts they may be due again.',
   },
   'hi': {
     'home': 'होम',
@@ -257,6 +308,57 @@ const _translations = {
     'clearProductMemory': 'प्रोडक्ट मेमोरी साफ करें',
     'about': 'ऐप के बारे में',
     'showAppGuide': 'ऐप गाइड दिखाएं',
+    'howShoppingAssistant': 'खरीदारी सहायक कैसे इस्तेमाल करें',
+    'planStep': '1. योजना',
+    'planStepBody':
+        'घर से निकलने से पहले सामान जोड़ें. आपकी सूची इस फोन पर सेव रहती है.',
+    'shopStep': '2. खरीदारी',
+    'shopStepBody':
+        'स्टोर में यह सूची खोलें और सामान कार्ट में डालते समय टिक करें.',
+    'reconcileStep': '3. स्कैन और मिलान',
+    'reconcileStepBody':
+        'चेकआउट के बाद बिल स्कैन करें. CartSense खरीदा, छूटा और अतिरिक्त सामान दिखाएगा.',
+    'addProductField': 'सामान जोड़ें',
+    'addProductHint': 'चाय, दूध, तेल या ब्रांड',
+    'emptyShoppingList':
+        'ऊपर चाय, दूध, तेल या कोई भी सामान जोड़ें. CartSense सूची को सेव रखता है ताकि आप स्टोर में खोलकर सामान टिक कर सकें.',
+    'noReceiptsYet': 'अभी कोई बिल नहीं',
+    'scanFirstReceiptBody':
+        'कीमत और खर्च ट्रैक करने के लिए पहला किराना बिल स्कैन करें.',
+    'scanFirstReceipt': 'पहला बिल स्कैन करें',
+    'planList': 'सूची बनाएं',
+    'tryDemo': 'डेमो देखें',
+    'exportGroceryReport': 'किराना रिपोर्ट एक्सपोर्ट करें',
+    'exportGroceryReportBody':
+        'CSV, PDF, WhatsApp सारांश, श्रेणी चार्ट या पूरा बैकअप.',
+    'grocerySpendMonth': 'इस महीने का किराना खर्च',
+    'setBudget': 'बजट सेट करें',
+    'edit': 'बदलें',
+    'savedBills': 'सेव बिल',
+    'possibleSaving': 'संभावित बचत',
+    'spendingAlerts': 'खर्च अलर्ट',
+    'spendingTrend': 'खर्च रुझान',
+    'categorySpend': 'श्रेणी खर्च',
+    'thisMonth': 'इस महीने',
+    'allSavedBills': 'सभी सेव बिल',
+    'storeComparison': 'स्टोर तुलना',
+    'topExpensiveProducts': 'सबसे महंगे सामान',
+    'priceChanges': 'कीमत बदलाव',
+    'priceDrops': 'कीमत गिरावट',
+    'betterPricesNearby': 'पास में बेहतर कीमतें',
+    'buyAgainSoon': 'जल्द फिर खरीदें',
+    'scanAnotherMonth':
+        'श्रेणी बढ़ोतरी अलर्ट देखने के लिए दूसरे महीने के बिल स्कैन करें.',
+    'saveBillsTrend': 'खर्च रुझान देखने के लिए बिल सेव करें.',
+    'categoriesAppear': 'बिल सेव करने के बाद श्रेणियां दिखेंगी.',
+    'storeSpendAppears': 'बिल सेव करने के बाद स्टोर खर्च दिखेगा.',
+    'productRankingAppears': 'स्कैन के बाद सामान खर्च रैंकिंग दिखेगी.',
+    'noPriceRises': 'अभी दोहराए गए सामान की कीमत बढ़ोतरी नहीं मिली.',
+    'priceDropsAppear': 'दोहराए गए सामान सस्ते होने पर कीमत गिरावट दिखेगी.',
+    'scanMoreStores':
+        'कीमतों की तुलना के लिए एक से अधिक स्टोर के बिल स्कैन करें.',
+    'repeatedProductsAppear':
+        'जब CartSense अनुमान लगाएगा कि सामान फिर खरीदना है, वे यहां दिखेंगे.',
   },
   'te': {
     'home': 'హోమ్',
@@ -361,5 +463,59 @@ const _translations = {
     'clearProductMemory': 'ప్రోడక్ట్ మెమరీ క్లియర్',
     'about': 'గురించి',
     'showAppGuide': 'యాప్ గైడ్ చూపించండి',
+    'howShoppingAssistant': 'షాపింగ్ అసిస్టెంట్ ఎలా వాడాలి',
+    'planStep': '1. ప్లాన్',
+    'planStepBody':
+        'బయటకు వెళ్లే ముందు వస్తువులు జోడించండి. మీ లిస్ట్ ఈ ఫోన్‌లో సేవ్ అవుతుంది.',
+    'shopStep': '2. షాప్',
+    'shopStepBody':
+        'స్టోర్‌లో ఈ లిస్ట్ తెరిచి, కార్ట్‌లో వేసినప్పుడు టిక్ చేయండి.',
+    'reconcileStep': '3. స్కాన్ & పోల్చండి',
+    'reconcileStepBody':
+        'చెకౌట్ తర్వాత బిల్ స్కాన్ చేయండి. CartSense కొనినవి, మిస్సైనవి, అదనపు వస్తువులు చూపిస్తుంది.',
+    'addProductField': 'వస్తువు జోడించండి',
+    'addProductHint': 'టీ, పాలు, నూనె లేదా బ్రాండ్',
+    'emptyShoppingList':
+        'పై భాగంలో టీ, పాలు, నూనె లేదా ఏ వస్తువైనా జోడించండి. స్టోర్‌లో తెరిచి టిక్ చేయడానికి CartSense లిస్ట్‌ను సేవ్ చేస్తుంది.',
+    'noReceiptsYet': 'ఇంకా బిల్లులు లేవు',
+    'scanFirstReceiptBody':
+        'ధరలు మరియు ఖర్చు ట్రాక్ చేయడానికి మొదటి గ్రోసరీ బిల్ స్కాన్ చేయండి.',
+    'scanFirstReceipt': 'మొదటి బిల్ స్కాన్',
+    'planList': 'లిస్ట్ ప్లాన్',
+    'tryDemo': 'డెమో చూడండి',
+    'exportGroceryReport': 'గ్రోసరీ రిపోర్ట్ ఎక్స్‌పోర్ట్',
+    'exportGroceryReportBody':
+        'CSV, PDF, WhatsApp సారాంశం, కేటగిరీ చార్ట్ లేదా పూర్తి బ్యాకప్.',
+    'grocerySpendMonth': 'ఈ నెల గ్రోసరీ ఖర్చు',
+    'setBudget': 'బడ్జెట్ సెట్',
+    'edit': 'మార్చండి',
+    'savedBills': 'సేవ్ చేసిన బిల్లులు',
+    'possibleSaving': 'సాధ్యమైన ఆదా',
+    'spendingAlerts': 'ఖర్చు అలర్ట్స్',
+    'spendingTrend': 'ఖర్చు ట్రెండ్',
+    'categorySpend': 'కేటగిరీ ఖర్చు',
+    'thisMonth': 'ఈ నెల',
+    'allSavedBills': 'అన్ని సేవ్ బిల్లులు',
+    'storeComparison': 'స్టోర్ పోలిక',
+    'topExpensiveProducts': 'అత్యధిక ఖర్చు వస్తువులు',
+    'priceChanges': 'ధర మార్పులు',
+    'priceDrops': 'ధర తగ్గుదల',
+    'betterPricesNearby': 'దగ్గరలో మంచి ధరలు',
+    'buyAgainSoon': 'త్వరలో మళ్లీ కొనండి',
+    'scanAnotherMonth':
+        'కేటగిరీ పెరుగుదల అలర్ట్స్ చూడడానికి మరొక నెల బిల్లులు స్కాన్ చేయండి.',
+    'saveBillsTrend': 'ఖర్చు ట్రెండ్స్ చూడడానికి బిల్లులు సేవ్ చేయండి.',
+    'categoriesAppear': 'బిల్ సేవ్ చేసిన తర్వాత కేటగిరీలు కనిపిస్తాయి.',
+    'storeSpendAppears':
+        'బిల్లులు సేవ్ చేసిన తర్వాత స్టోర్ ఖర్చు కనిపిస్తుంది.',
+    'productRankingAppears':
+        'స్కాన్‌ల తర్వాత వస్తువుల ఖర్చు ర్యాంకింగ్ కనిపిస్తుంది.',
+    'noPriceRises': 'ఇంకా పునరావృత వస్తువుల ధర పెరుగుదల కనిపించలేదు.',
+    'priceDropsAppear':
+        'పునరావృత వస్తువులు చవకైనప్పుడు ధర తగ్గుదల కనిపిస్తుంది.',
+    'scanMoreStores':
+        'ధరలు పోల్చడానికి ఒకటి కంటే ఎక్కువ స్టోర్‌ల బిల్లులు స్కాన్ చేయండి.',
+    'repeatedProductsAppear':
+        'CartSense మళ్లీ కొనాల్సి ఉంటుందని అంచనా వేసినప్పుడు వస్తువులు ఇక్కడ కనిపిస్తాయి.',
   },
 };
