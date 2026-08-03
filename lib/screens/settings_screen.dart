@@ -5,6 +5,7 @@ import '../models/receipt.dart';
 import '../models/shopping_item.dart';
 import 'onboarding_screen.dart';
 import '../services/backup_service.dart';
+import '../services/language_store.dart';
 import '../services/product_memory_store.dart';
 import '../theme/cartsense_theme.dart';
 
@@ -21,6 +22,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int receiptCount = 0;
   int shoppingCount = 0;
   int memoryCount = 0;
+  AppLanguage language = AppLanguage.english;
 
   @override
   void initState() {
@@ -31,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final preferences = await SharedPreferences.getInstance();
     final memory = await ProductMemoryStore().load();
+    final savedLanguage = await LanguageStore().load();
     if (!mounted) return;
     setState(() {
       aiConsent = preferences.getBool('cartsense_ai_consent') == true;
@@ -57,8 +60,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
               .where((item) => !item.checked)
               .length;
       memoryCount = memory.length;
+      language = savedLanguage;
       loading = false;
     });
+  }
+
+  Future<void> _chooseLanguage() async {
+    final selected = await showModalBottomSheet<AppLanguage>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              leading: Icon(Icons.translate_outlined),
+              title: Text('Choose app language'),
+              subtitle: Text('Starter support for the main shopping workflow.'),
+            ),
+            ...AppLanguage.values.map(
+              (option) => ListTile(
+                leading: Icon(
+                  option.code == language.code
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  color: option.code == language.code
+                      ? CartSenseColors.primary
+                      : null,
+                ),
+                title: Text(option.nativeName),
+                subtitle: Text(option.name),
+                onTap: () => Navigator.pop(context, option),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    await LanguageStore().save(selected);
+    if (!mounted) return;
+    setState(() => language = selected);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Language changed to ${selected.nativeName}.'),
+    ));
   }
 
   Future<void> _toggleAiConsent(bool value) async {
@@ -247,12 +291,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'When enabled, receipt photos can be sent securely for AI recognition. Private scan remains available.',
                         ),
                       ),
-                      const ListTile(
-                        leading: Icon(Icons.lock_outline),
-                        title: Text('Private on-device reader'),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _settingsSection(
+                    'Language',
+                    [
+                      ListTile(
+                        leading: const Icon(Icons.translate_outlined),
+                        title: const Text('App language'),
                         subtitle: Text(
-                          'Private scanning keeps the receipt photo on your phone.',
+                          '${language.nativeName} · Shopping Assistant, Add Product and Trip Mode',
                         ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: _chooseLanguage,
                       ),
                     ],
                   ),

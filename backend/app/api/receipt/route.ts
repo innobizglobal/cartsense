@@ -3,9 +3,12 @@ import {
   extractResponseText,
   imageType,
   normalizeReceipt,
+  normalizeShelfPrice,
   receiptAuditPrompt,
   receiptJsonSchema,
   receiptPrompt,
+  shelfPriceJsonSchema,
+  shelfPricePrompt,
   shouldAuditReceipt,
 } from "@/lib/receipt-ai";
 
@@ -112,6 +115,48 @@ async function analyzeReceipt(
   );
 }
 
+async function analyzeShelfPrice(
+  bindings: RuntimeEnv,
+  imageUrl: string,
+  safetyIdentifier: string,
+) {
+  const upstream = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${bindings.OPENAI_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: bindings.OPENAI_MODEL ?? "gpt-5.6-terra",
+      store: false,
+      safety_identifier: safetyIdentifier,
+      max_output_tokens: 2000,
+      reasoning: { effort: "low" },
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: shelfPricePrompt },
+          { type: "input_image", image_url: imageUrl, detail: "high" },
+        ],
+      }],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "shelf_price",
+          strict: true,
+          schema: shelfPriceJsonSchema,
+        },
+      },
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!upstream.ok) throw new ModelRequestError(upstream.status);
+  const payload = await upstream.json() as Record<string, unknown>;
+  return normalizeShelfPrice(
+    JSON.parse(extractResponseText(payload)) as Record<string, unknown>,
+  );
+}
+
 export async function POST(request: Request) {
   const bindings = runtimeEnv();
   if (!bindings.OPENAI_API_KEY) {
@@ -128,6 +173,66 @@ export async function POST(request: Request) {
     form = await request.formData();
   } catch {
     return errorResponse("Send the receipt as a multipart image upload.", 400, "INVALID_UPLOAD");
+  }
+  const mode = form.get("mode")?.toString();
+  if (mode === "shelf_price") {
+    const priceImage = form.get("price") ?? form.get("receipt");
+    if (!(priceImage instanceof File)) {
+      return errorResponse("No shelf price photo was supplied.", 400, "IMAGE_REQUIRED");
+    }
+    const effectiveImageType = await imageType(priceImage);
+    if (effectiveImageType == null) {
+      return errorResponse("Use a JPEG, PNG or WebP shelf label photo.", 415, "IMAGE_TYPE_UNSUPPORTED");
+    }
+    if (priceImage.size <= 0 || priceImage.size > maximumImageBytes) {
+      return errorResponse("The shelf label photo must be between 1 byte and 12 MB.", 413, "IMAGE_TOO_LARGE");
+    }
+
+    let allowance: { allowed: boolean; remaining: number; identifier: string };
+    try {
+      allowance = await consumeScan(request);
+    } catch {
+      return errorResponse("The shelf price service is temporarily unavailable.", 503, "RATE_LIMIT_UNAVAILABLE");
+    }
+    if (!allowance.allowed) {
+      return errorResponse("Today's AI scan limit has been reached. Type the shelf price manually for now.", 429, "DAILY_LIMIT_REACHED");
+    }
+
+    const base64 = Buffer.from(await priceImage.arrayBuffer()).toString("base64");
+    const imageUrl = `data:${effectiveImageType};base64,${base64}`;
+    try {
+      const shelfPrice = await analyzeShelfPrice(
+        bindings,
+        imageUrl,
+        allowance.identifier,
+      );
+      return Response.json({ shelfPrice }, {
+        headers: {
+          "cache-control": "no-store",
+          "x-cartsense-scans-remaining": String(allowance.remaining),
+        },
+      });
+    } catch (error) {
+      if (error instanceof ModelRequestError) {
+        const retryable = error.status === 408 || error.status === 409 ||
+          error.status === 429 || error.status >= 500;
+        return errorResponse(
+          retryable
+            ? "The AI shelf price reader is busy. Please try again shortly."
+            : "The AI shelf price reader could not process this photo.",
+          retryable ? 503 : 422,
+          "AI_REQUEST_FAILED",
+        );
+      }
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        return errorResponse(
+          "The shelf price reader took too long. Try again or type the price.",
+          504,
+          "AI_TIMEOUT",
+        );
+      }
+      return errorResponse("The shelf label result was incomplete. Retake the photo closer to the price tag.", 422, "AI_RESULT_INVALID");
+    }
   }
   const images = form
     .getAll("receipt")

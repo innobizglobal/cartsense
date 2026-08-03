@@ -95,6 +95,11 @@ class SavingsIntelligence {
       .toList()
     ..sort((a, b) => b.priceChangePercent.compareTo(a.priceChangePercent));
 
+  List<ProductPriceInsight> get priceDrops => priceInsights
+      .where((item) => item.purchaseCount > 1 && item.priceChangePercent <= -5)
+      .toList()
+    ..sort((a, b) => a.priceChangePercent.compareTo(b.priceChangePercent));
+
   List<ProductPriceInsight> get cheaperStoreOptions => priceInsights
       .where((item) =>
           item.bestStore != item.latestStore && item.possibleSaving >= 1)

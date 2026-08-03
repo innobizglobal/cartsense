@@ -67,4 +67,29 @@ void main() {
     expect(catalog.categoryFor('sunflower oil'), GroceryCategory.cookingOils);
     expect(catalog.search('oil').single.name, contains('Gold Drop'));
   });
+
+  test('shopping search does not return unrelated popular products', () {
+    final catalog = ProductCatalog.fromReceipts([
+      _bill(
+        id: 'mixed',
+        store: 'D-Mart',
+        date: DateTime(2026, 8, 2),
+        items: [
+          _item('Milk 500ml', GroceryCategory.dairy, 32),
+          _item('T Shirt', GroceryCategory.other, 399),
+          _item('Veda Karam Powder', GroceryCategory.pantry, 80),
+          _item('Aashirvaad Atta', GroceryCategory.pantry, 220),
+        ],
+      ),
+    ]);
+
+    final matches = catalog.search('milk');
+
+    expect(matches.map((item) => item.name), contains('Milk 500ml'));
+    expect(matches.map((item) => item.name), isNot(contains('T Shirt')));
+    expect(
+        matches.map((item) => item.name), isNot(contains('Veda Karam Powder')));
+    expect(
+        matches.map((item) => item.name), isNot(contains('Aashirvaad Atta')));
+  });
 }

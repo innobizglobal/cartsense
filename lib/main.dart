@@ -1914,6 +1914,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             double.tryParse(total.text) ?? receipt.printedTotal;
         receipt.purchasedAt = parsedDate ?? receipt.purchasedAt;
       });
+      await ReceiptStore().save(receipt);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Receipt details saved.'),
+        ));
+      }
     }
     store.dispose();
     date.dispose();

@@ -16,6 +16,37 @@ class AiReceiptException implements Exception {
   String toString() => message;
 }
 
+class ShelfPriceResult {
+  const ShelfPriceResult({
+    required this.productName,
+    required this.confidence,
+    this.mrp,
+    this.salePrice,
+    this.packSize,
+    this.warnings = const [],
+  });
+
+  final String productName;
+  final double? mrp;
+  final double? salePrice;
+  final String? packSize;
+  final double confidence;
+  final List<String> warnings;
+
+  factory ShelfPriceResult.fromJson(Map<String, dynamic> json) =>
+      ShelfPriceResult(
+        productName: json['productName']?.toString() ?? '',
+        mrp: (json['mrp'] as num?)?.toDouble(),
+        salePrice: (json['salePrice'] as num?)?.toDouble(),
+        packSize: json['packSize']?.toString(),
+        confidence: (json['confidence'] as num?)?.toDouble() ?? .5,
+        warnings: (json['warnings'] as List<dynamic>? ?? const [])
+            .map((value) => value.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .toList(),
+      );
+}
+
 class AiReceiptService {
   AiReceiptService({http.Client? client, String? endpoint})
       : client = client ?? http.Client(),
@@ -135,6 +166,86 @@ class AiReceiptService {
       );
     }
     return receipt;
+  }
+
+  Future<ShelfPriceResult> parseShelfPrice(File image) async {
+    if (!isConfigured) {
+      throw const AiReceiptException(
+        'AI shelf price capture is not configured in this build.',
+        code: 'AI_NOT_CONFIGURED',
+      );
+    }
+    final uploadImage = await _prepareUpload(image);
+    final request = http.MultipartRequest('POST', Uri.parse(endpoint));
+    request.headers.addAll({
+      'x-cartsense-device': await _deviceId(),
+      'x-cartsense-client': 'android/0.9.0',
+    });
+    request.fields['mode'] = 'shelf_price';
+    request.files.add(await http.MultipartFile.fromPath(
+      'price',
+      uploadImage.path,
+      filename: 'shelf_price${_extensionFor(uploadImage.path)}',
+      contentType: _mediaTypeFor(uploadImage.path),
+    ));
+
+    late http.StreamedResponse streamed;
+    try {
+      streamed =
+          await client.send(request).timeout(const Duration(seconds: 90));
+    } on SocketException {
+      throw const AiReceiptException(
+        'No internet connection. Type the shelf price manually for now.',
+        code: 'OFFLINE',
+      );
+    } on TimeoutException {
+      throw const AiReceiptException(
+        'The shelf price reader took too long. Try again or type the price.',
+        code: 'AI_TIMEOUT',
+      );
+    } on FormatException {
+      throw const AiReceiptException(
+        'The AI service address in this build is invalid.',
+        code: 'AI_ENDPOINT_INVALID',
+      );
+    }
+
+    final body = await streamed.stream.bytesToString();
+    Map<String, dynamic> payload;
+    try {
+      payload = Map<String, dynamic>.from(jsonDecode(body) as Map);
+    } catch (_) {
+      throw const AiReceiptException(
+        'The AI service returned an unreadable shelf-price response.',
+        code: 'AI_RESPONSE_INVALID',
+      );
+    }
+    if (streamed.statusCode != 200) {
+      throw AiReceiptException(
+        payload['error']?.toString() ??
+            'The AI reader could not read this shelf label.',
+        code: payload['code']?.toString(),
+      );
+    }
+    final shelfJson = payload['shelfPrice'];
+    if (shelfJson is! Map) {
+      throw const AiReceiptException(
+        'The shelf label result was incomplete. Retake the photo closer to the label.',
+        code: 'AI_RESULT_INVALID',
+      );
+    }
+    final result = ShelfPriceResult.fromJson(
+      Map<String, dynamic>.from(shelfJson),
+    );
+    if (result.productName.trim().isEmpty &&
+        result.mrp == null &&
+        result.salePrice == null) {
+      throw const AiReceiptException(
+        'Could not read a product name or price from this shelf label.',
+        code: 'AI_RESULT_INCOMPLETE',
+      );
+    }
+    return result;
   }
 
   Future<File> _prepareUpload(File image) async {

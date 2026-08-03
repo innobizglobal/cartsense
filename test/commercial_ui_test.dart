@@ -80,7 +80,7 @@ void main() {
     await tester.tap(find.text('List').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Shopping list'), findsWidgets);
+    expect(find.text('Shopping Assistant'), findsWidgets);
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.text('Home'), findsOneWidget);
     expect(find.text('Scan'), findsOneWidget);

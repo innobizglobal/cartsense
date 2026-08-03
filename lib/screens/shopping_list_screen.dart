@@ -1,10 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/product_catalog.dart';
 import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../models/shopping_item.dart';
 import '../services/budget_store.dart';
+import '../services/ai_receipt_service.dart';
+import '../services/language_store.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
 import 'product_master_screen.dart';
@@ -40,6 +45,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   List<CatalogProduct> searchResults = [];
   bool loading = true;
   double monthlyBudget = 0;
+  String languageCode = 'en';
 
   late final ProductCatalog catalog =
       ProductCatalog.fromReceipts(widget.receipts);
@@ -62,6 +68,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     super.initState();
     _load();
     _loadBudget();
+    _loadLanguage();
   }
 
   @override
@@ -84,6 +91,13 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     final budget = await budgetStore.load();
     if (mounted) setState(() => monthlyBudget = budget);
   }
+
+  Future<void> _loadLanguage() async {
+    final language = await LanguageStore().load();
+    if (mounted) setState(() => languageCode = language.code);
+  }
+
+  String t(String key) => appText(languageCode, key);
 
   void _search(String value) {
     setState(() => searchResults = catalog.search(value));
@@ -250,6 +264,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       MaterialPageRoute(
         builder: (_) => _ShoppingTripModeScreen(
           items: activeItems,
+          catalog: catalog,
           onToggle: _toggle,
           onEdit: (item) => _openEditor(existing: item),
         ),
@@ -281,6 +296,18 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     return plan;
   }
 
+  List<ProductPriceInsight> _priceWatchItems() {
+    final activeKeys = activeItems
+        .map((item) => normalizedProductName(item.name))
+        .where((key) => key.length > 1)
+        .toSet();
+    return intelligence.priceRises
+        .where((insight) =>
+            activeKeys.contains(normalizedProductName(insight.name)))
+        .take(4)
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final dueSuggestions = intelligence.frequentProducts
@@ -304,11 +331,12 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     final missedItems = activeItems
         .where((item) => item.note.toLowerCase().contains('missed'))
         .toList();
+    final priceWatch = _priceWatchItems();
 
     return Scaffold(
       backgroundColor: _ivory,
       appBar: AppBar(
-        title: const Text('Shopping list'),
+        title: Text(t('shoppingAssistant')),
         actions: [
           IconButton(
             tooltip: 'Product master',
@@ -354,8 +382,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Estimated basket',
-                                  style: TextStyle(color: Colors.white70)),
+                              Text(t('estimatedBasket'),
+                                  style:
+                                      const TextStyle(color: Colors.white70)),
                               Text(
                                 '₹${estimatedTotal.toStringAsFixed(2)}',
                                 style: const TextStyle(
@@ -428,7 +457,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         child: FilledButton.icon(
                           onPressed: _openTripMode,
                           icon: const Icon(Icons.local_grocery_store_outlined),
-                          label: const Text('Start trip'),
+                          label: Text(t('startTrip')),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -436,13 +465,66 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _shareList,
                           icon: const Icon(Icons.ios_share_outlined),
-                          label: const Text('Share list'),
+                          label: Text(t('shareList')),
                         ),
                       ),
                     ],
                   ),
                 ],
                 const SizedBox(height: 12),
+                if (activeItems.isNotEmpty || dueSuggestions.isNotEmpty) ...[
+                  Card(
+                    color: CartSenseColors.surfaceMuted,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.auto_awesome, color: _green),
+                              const SizedBox(width: 8),
+                              Text(
+                                t('smartTripAssistant'),
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          _smartLine(
+                            Icons.shopping_basket_outlined,
+                            activeItems.isEmpty
+                                ? 'Add products to plan your next store trip.'
+                                : '${activeItems.length} products planned, about ₹${estimatedTotal.toStringAsFixed(0)}.',
+                          ),
+                          if (monthlyBudget > 0)
+                            _smartLine(
+                              budgetRemaining >= 0
+                                  ? Icons.verified_outlined
+                                  : Icons.warning_amber_rounded,
+                              budgetRemaining >= 0
+                                  ? 'After this trip, about ₹${budgetRemaining.toStringAsFixed(0)} remains in your monthly budget.'
+                                  : 'This trip may put you ₹${budgetRemaining.abs().toStringAsFixed(0)} over your monthly budget.',
+                            ),
+                          if (possibleSaving > 0)
+                            _smartLine(
+                              Icons.savings_outlined,
+                              'Possible saving: ₹${possibleSaving.toStringAsFixed(0)} if you buy at best-seen stores.',
+                            ),
+                          if (dueSuggestions.isNotEmpty)
+                            _smartLine(
+                              Icons.replay_outlined,
+                              '${dueSuggestions.length} usual products may be due again.',
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Card(
                   color: CartSenseColors.surfaceMuted,
                   child: Padding(
@@ -554,6 +636,51 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                 ),
                         ),
                       )),
+                ] else if (queryController.text.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Card(
+                    color: CartSenseColors.surfaceMuted,
+                    child: ListTile(
+                      leading: const Icon(Icons.search_off, color: _green),
+                      title: const Text(
+                        'No matching saved product',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      subtitle: Text(
+                        'Add "${queryController.text.trim()}" as a new product and choose its category.',
+                      ),
+                      trailing: TextButton(
+                        onPressed: () => _openEditor(
+                          initialName: queryController.text.trim(),
+                        ),
+                        child: const Text('Add'),
+                      ),
+                    ),
+                  ),
+                ],
+                if (priceWatch.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _sectionTitle(Icons.price_change_outlined, 'Price watch'),
+                  ...priceWatch.map((insight) => Card(
+                        color: CartSenseColors.warning,
+                        child: ListTile(
+                          leading: const Icon(Icons.trending_up,
+                              color: Colors.deepOrange),
+                          title: Text(
+                            insight.name,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          subtitle: Text(
+                            'Was ₹${insight.previousPrice!.toStringAsFixed(2)}, now ₹${insight.latestPrice.toStringAsFixed(2)} at ${insight.latestStore}.',
+                          ),
+                          trailing: Text(
+                            '+${insight.priceChangePercent.toStringAsFixed(0)}%',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      )),
                 ],
                 if (missedItems.isNotEmpty) ...[
                   const SizedBox(height: 20),
@@ -580,7 +707,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                       )),
                 ],
                 const SizedBox(height: 20),
-                _sectionTitle(Icons.checklist, 'Shopping list'),
+                _sectionTitle(Icons.checklist, t('productsToBuy')),
                 if (items.isEmpty)
                   const Card(
                     child: Padding(
@@ -774,6 +901,23 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         ),
       );
 
+  Widget _smartLine(IconData icon, String text) => Padding(
+        padding: const EdgeInsets.only(top: 7),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 19, color: _green),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                text,
+                style: const TextStyle(height: 1.25),
+              ),
+            ),
+          ],
+        ),
+      );
+
   Widget _workflowStep(
     IconData icon,
     String title,
@@ -834,6 +978,13 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     } else {
       parts.add('price needed');
     }
+    if (item.salePrice != null || item.mrp != null) {
+      parts.add([
+        if (item.salePrice != null)
+          'shelf sale ₹${item.salePrice!.toStringAsFixed(2)}',
+        if (item.mrp != null) 'MRP ₹${item.mrp!.toStringAsFixed(2)}',
+      ].join(' / '));
+    }
     if (item.bestStore.isNotEmpty && item.possibleSaving > 0) {
       parts.add(
           'save ₹${item.possibleSaving.toStringAsFixed(2)} at ${item.bestStore}');
@@ -872,6 +1023,11 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
   late DateTime? remindAt;
   CatalogProduct? matched;
   List<CatalogProduct> matches = [];
+  double? shelfMrp;
+  double? shelfSalePrice;
+  String? shelfPackSize;
+  bool scanningShelf = false;
+  String languageCode = 'en';
 
   @override
   void initState() {
@@ -892,8 +1048,18 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
         widget.initialProduct?.category ??
         GroceryCategory.infer(widget.initialName);
     remindAt = item?.remindAt;
+    shelfMrp = item?.mrp;
+    shelfSalePrice = item?.salePrice;
     matches = widget.catalog.search(name.text, limit: 4);
+    _loadLanguage();
   }
+
+  Future<void> _loadLanguage() async {
+    final language = await LanguageStore().load();
+    if (mounted) setState(() => languageCode = language.code);
+  }
+
+  String t(String key) => appText(languageCode, key);
 
   @override
   void dispose() {
@@ -944,6 +1110,59 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
     }
   }
 
+  Future<void> _scanShelfPrice() async {
+    final photo = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 92,
+      maxWidth: 2200,
+    );
+    if (photo == null) return;
+    setState(() => scanningShelf = true);
+    try {
+      final result = await AiReceiptService().parseShelfPrice(File(photo.path));
+      final productName = result.productName.trim();
+      final usablePrice = result.salePrice ?? result.mrp;
+      setState(() {
+        if (productName.isNotEmpty) {
+          name.text = productName;
+          matched = widget.catalog.exactMatch(productName);
+          matches = widget.catalog.search(productName, limit: 4);
+          category = matched?.category ?? GroceryCategory.infer(productName);
+        }
+        if (usablePrice != null && usablePrice > 0) {
+          price.text = usablePrice.toStringAsFixed(2);
+        }
+        shelfMrp = result.mrp;
+        shelfSalePrice = result.salePrice;
+        shelfPackSize = result.packSize;
+      });
+      if (!mounted) return;
+      final details = [
+        if (result.salePrice != null)
+          'sale ₹${result.salePrice!.toStringAsFixed(2)}',
+        if (result.mrp != null) 'MRP ₹${result.mrp!.toStringAsFixed(2)}',
+      ].join(' · ');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(details.isEmpty
+            ? 'Shelf label read. Review before saving.'
+            : 'Shelf label read: $details'),
+      ));
+    } on AiReceiptException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error.message),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content:
+            Text('Could not read this shelf label. Type the price manually.'),
+      ));
+    } finally {
+      if (mounted) setState(() => scanningShelf = false);
+    }
+  }
+
   void _save() {
     if (name.text.trim().isEmpty) return;
     final existing = widget.existing;
@@ -969,6 +1188,8 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
         remindAt: remindAt,
         completedAt: existing?.completedAt,
         sourceReceiptId: existing?.sourceReceiptId,
+        mrp: shelfMrp ?? existing?.mrp,
+        salePrice: shelfSalePrice ?? existing?.salePrice,
         createdAt: existing?.createdAt ?? DateTime.now(),
         checked: existing?.checked ?? false,
       ),
@@ -977,7 +1198,8 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text(widget.existing == null ? 'Add product' : 'Edit product'),
+        title:
+            Text(widget.existing == null ? t('addProduct') : t('editProduct')),
         content: SizedBox(
           width: double.maxFinite,
           child: SingleChildScrollView(
@@ -994,6 +1216,42 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                     prefixIcon: Icon(Icons.search),
                   ),
                 ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: scanningShelf ? null : _scanShelfPrice,
+                    icon: scanningShelf
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.camera_alt_outlined),
+                    label: Text(scanningShelf
+                        ? t('readingShelfPrice')
+                        : t('scanShelfPrice')),
+                  ),
+                ),
+                if (shelfMrp != null || shelfSalePrice != null) ...[
+                  const SizedBox(height: 8),
+                  Card(
+                    color: CartSenseColors.surfaceMuted,
+                    child: ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.sell_outlined, color: _green),
+                      title: const Text('Shelf price captured'),
+                      subtitle: Text([
+                        if (shelfSalePrice != null)
+                          'Sale ₹${shelfSalePrice!.toStringAsFixed(2)}',
+                        if (shelfMrp != null)
+                          'MRP ₹${shelfMrp!.toStringAsFixed(2)}',
+                        if (shelfPackSize != null && shelfPackSize!.isNotEmpty)
+                          shelfPackSize!,
+                      ].join(' · ')),
+                    ),
+                  ),
+                ],
                 if (name.text.trim().isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Align(
@@ -1125,11 +1383,13 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
 class _ShoppingTripModeScreen extends StatefulWidget {
   const _ShoppingTripModeScreen({
     required this.items,
+    required this.catalog,
     required this.onToggle,
     required this.onEdit,
   });
 
   final List<ShoppingItem> items;
+  final ProductCatalog catalog;
   final Future<void> Function(ShoppingItem item, bool checked) onToggle;
   final void Function(ShoppingItem item) onEdit;
 
@@ -1140,15 +1400,41 @@ class _ShoppingTripModeScreen extends StatefulWidget {
 
 class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
   bool updating = false;
+  final extraItems = <ShoppingItem>[];
+  late double tripBudget;
+  String languageCode = 'en';
 
   List<ShoppingItem> get stillToBuy =>
       widget.items.where((item) => !item.checked).toList();
   List<ShoppingItem> get inCart =>
       widget.items.where((item) => item.checked).toList();
+  List<ShoppingItem> get inBasket => [...inCart, ...extraItems];
   double get progress =>
       widget.items.isEmpty ? 0 : inCart.length / widget.items.length;
   double get cartEstimate =>
       inCart.fold(0, (total, item) => total + item.estimatedTotal);
+  double get extraEstimate =>
+      extraItems.fold(0, (total, item) => total + item.estimatedTotal);
+  double get expectedBill => cartEstimate + extraEstimate;
+  int get unknownPriceCount =>
+      inBasket.where((item) => item.expectedUnitPrice <= 0).length;
+  double get budgetGap => expectedBill - tripBudget;
+
+  @override
+  void initState() {
+    super.initState();
+    final plannedTotal =
+        widget.items.fold(0.0, (total, item) => total + item.estimatedTotal);
+    tripBudget = plannedTotal > 0 ? plannedTotal : 1000;
+    _loadLanguage();
+  }
+
+  Future<void> _loadLanguage() async {
+    final language = await LanguageStore().load();
+    if (mounted) setState(() => languageCode = language.code);
+  }
+
+  String t(String key) => appText(languageCode, key);
 
   Future<void> _toggle(ShoppingItem item, bool checked) async {
     setState(() => updating = true);
@@ -1158,11 +1444,91 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
     }
   }
 
+  Future<void> _setTripBudget() async {
+    final controller = TextEditingController(
+      text: tripBudget > 0 ? tripBudget.toStringAsFixed(0) : '',
+    );
+    final value = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(t('setTripBudget')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Maximum amount before counter',
+            prefixText: '₹ ',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              double.tryParse(controller.text.trim()) ?? tripBudget,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value != null && value > 0) {
+      setState(() => tripBudget = value);
+    }
+  }
+
+  Future<void> _addExtraItem() async {
+    final item = await showDialog<ShoppingItem>(
+      context: context,
+      builder: (context) => _ShoppingItemEditor(
+        catalog: widget.catalog,
+        initialName: '',
+      ),
+    );
+    if (item == null) return;
+    setState(() {
+      item.checked = true;
+      item.note = item.note.isEmpty
+          ? 'Extra picked during trip.'
+          : '${item.note} · Extra picked during trip.';
+      extraItems.add(item);
+    });
+  }
+
+  List<ShoppingItem> _removalSuggestions() {
+    if (budgetGap <= 0) return const [];
+    const protectedCategories = {
+      'Dairy & chilled',
+      'Pantry staples',
+      'Cooking oils',
+      'Baby care',
+      'Sanitary care',
+    };
+    final candidates = [
+      ...extraItems,
+      ...inCart.where((item) => !protectedCategories.contains(item.category)),
+    ]..sort((a, b) => b.estimatedTotal.compareTo(a.estimatedTotal));
+    return candidates.take(4).toList();
+  }
+
+  void _removeSuggestion(ShoppingItem item) {
+    if (extraItems.any((value) => value.id == item.id)) {
+      setState(() => extraItems.removeWhere((value) => value.id == item.id));
+    } else {
+      _toggle(item, false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: _ivory,
         appBar: AppBar(
-          title: const Text('Trip mode'),
+          title: Text(t('tripMode')),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -1180,13 +1546,14 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
+                    Row(
                       children: [
-                        Icon(Icons.local_grocery_store_outlined, color: _lime),
-                        SizedBox(width: 8),
+                        const Icon(Icons.local_grocery_store_outlined,
+                            color: _lime),
+                        const SizedBox(width: 8),
                         Text(
-                          'In-store checklist',
-                          style: TextStyle(
+                          t('inStoreChecklist'),
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
                             fontWeight: FontWeight.w900,
@@ -1210,11 +1577,111 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            Card(
+              color: budgetGap > 0
+                  ? CartSenseColors.warning
+                  : CartSenseColors.success,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          budgetGap > 0
+                              ? Icons.warning_amber_rounded
+                              : Icons.verified_outlined,
+                          color: _green,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            budgetGap > 0
+                                ? 'Before counter: ₹${budgetGap.toStringAsFixed(2)} over budget'
+                                : 'Before counter: ₹${budgetGap.abs().toStringAsFixed(2)} inside budget',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      unknownPriceCount > 0
+                          ? '$unknownPriceCount item prices are unknown. Scan shelf labels or type prices for a better counter estimate.'
+                          : 'Expected bill includes checked planned items plus extras picked during this trip.',
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ActionChip(
+                          avatar:
+                              const Icon(Icons.account_balance_wallet_outlined),
+                          label: Text(
+                              'Trip budget ₹${tripBudget.toStringAsFixed(0)}'),
+                          onPressed: _setTripBudget,
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.add_shopping_cart_outlined),
+                          label: Text(t('addExtraItem')),
+                          onPressed: _addExtraItem,
+                        ),
+                      ],
+                    ),
+                    if (_removalSuggestions().isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      const Text(
+                        'To reduce the bill, consider removing:',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      ..._removalSuggestions().map((item) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.remove_circle_outline),
+                            title: Text(item.name),
+                            subtitle: Text(
+                              item.estimatedTotal > 0
+                                  ? 'Saves about ₹${item.estimatedTotal.toStringAsFixed(2)}'
+                                  : 'Price unknown',
+                            ),
+                            trailing: TextButton(
+                              onPressed: () => _removeSuggestion(item),
+                              child: const Text('Remove'),
+                            ),
+                          )),
+                    ],
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
+            if (extraItems.isNotEmpty) ...[
+              _tripSectionTitle(
+                Icons.add_circle_outline,
+                t('extraPicked'),
+                extraItems.length,
+              ),
+              ...extraItems.map(
+                (item) => _TripItemCard(
+                  item: item,
+                  checked: true,
+                  onToggle: () => setState(() =>
+                      extraItems.removeWhere((value) => value.id == item.id)),
+                  onEdit: () {},
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (stillToBuy.isNotEmpty) ...[
               _tripSectionTitle(
                 Icons.radio_button_unchecked,
-                'Still to buy',
+                t('stillToBuy'),
                 stillToBuy.length,
               ),
               ...stillToBuy.map(
@@ -1262,7 +1729,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
             if (inCart.isNotEmpty) ...[
               const SizedBox(height: 18),
               _tripSectionTitle(
-                  Icons.shopping_cart_checkout, 'In cart', inCart.length),
+                  Icons.shopping_cart_checkout, t('inCart'), inCart.length),
               ...inCart.map(
                 (item) => _TripItemCard(
                   item: item,

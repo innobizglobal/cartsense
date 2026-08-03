@@ -89,6 +89,41 @@ Rules:
 - Check arithmetic: sum(items.lineTotal) + taxTotal + otherCharges - billDiscount should equal printedTotal when the receipt exposes all components. Report any mismatch in warnings.
 - For Indian receipts use currency INR and ISO date YYYY-MM-DD when the date is readable.`;
 
+export const shelfPriceJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "productName",
+    "mrp",
+    "salePrice",
+    "packSize",
+    "confidence",
+    "warnings",
+  ],
+  properties: {
+    productName: { type: "string" },
+    mrp: { type: ["number", "null"] },
+    salePrice: { type: ["number", "null"] },
+    packSize: { type: ["string", "null"] },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    warnings: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+export const shelfPricePrompt = `You are reading one supermarket shelf label, price sticker, offer tag, or product/price display.
+
+Return only structured data.
+
+Rules:
+- Focus on the shelf label/product price area. Ignore surrounding shelves, hands, floor, reflections and other nearby products unless they clearly belong to the same label.
+- Extract the product name as printed. Include useful size text only when it is clearly part of the product name; otherwise put size/pack in packSize.
+- MRP is the printed maximum retail price, usually labelled MRP, M.R.P., List price, Regular price, or crossed-out price.
+- salePrice is the amount the customer is expected to pay today, usually labelled offer, sale, price, our price, member price, deal price, or the largest highlighted price.
+- If only one price is visible and it appears to be today's shelf price, set salePrice to that price and mrp to null unless MRP is explicitly printed.
+- Use numbers only, without currency symbols. For Indian shelf labels assume INR.
+- If the label is blurry, partially clipped, has multiple competing labels, or prices are ambiguous, lower confidence and add a concise warning.
+- Do not invent a product name or price when not visible.`;
+
 export function receiptAuditPrompt(firstPass: ReturnType<typeof normalizeReceipt>) {
   return `Audit a first-pass grocery receipt extraction against the original receipt image. Return a complete corrected replacement using the requested schema.
 
@@ -210,6 +245,27 @@ export function normalizeReceipt(raw: UnknownRecord) {
     overallConfidence: Math.min(1, Math.max(0, finiteNumber(raw.overallConfidence, 0.5))),
     warnings: [...new Set(warnings)],
     recognitionSource: "ai_enhanced",
+  };
+}
+
+export function normalizeShelfPrice(raw: UnknownRecord) {
+  const warnings = Array.isArray(raw.warnings)
+    ? raw.warnings.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 8)
+    : [];
+  const mrp = raw.mrp == null ? null : Math.max(0, finiteNumber(raw.mrp));
+  const salePrice = raw.salePrice == null
+    ? null
+    : Math.max(0, finiteNumber(raw.salePrice));
+  if (mrp != null && salePrice != null && salePrice > mrp) {
+    warnings.push("Sale price appears higher than MRP; review before saving.");
+  }
+  return {
+    productName: String(raw.productName ?? "").trim(),
+    mrp,
+    salePrice,
+    packSize: raw.packSize == null ? null : String(raw.packSize).trim(),
+    confidence: Math.min(1, Math.max(0, finiteNumber(raw.confidence, 0.5))),
+    warnings: [...new Set(warnings)],
   };
 }
 

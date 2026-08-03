@@ -18,6 +18,8 @@ class ShoppingItem {
     this.reconciledReceiptId,
     this.purchasedName,
     this.actualUnitPrice,
+    this.mrp,
+    this.salePrice,
     this.checked = false,
   });
 
@@ -36,6 +38,8 @@ class ShoppingItem {
   String? reconciledReceiptId;
   String? purchasedName;
   double? actualUnitPrice;
+  double? mrp;
+  double? salePrice;
   DateTime createdAt;
   bool checked;
 
@@ -62,6 +66,8 @@ class ShoppingItem {
         'reconciledReceiptId': reconciledReceiptId,
         'purchasedName': purchasedName,
         'actualUnitPrice': actualUnitPrice,
+        'mrp': mrp,
+        'salePrice': salePrice,
         'createdAt': createdAt.toIso8601String(),
         'checked': checked,
       };
@@ -82,6 +88,8 @@ class ShoppingItem {
         reconciledReceiptId: json['reconciledReceiptId']?.toString(),
         purchasedName: json['purchasedName']?.toString(),
         actualUnitPrice: (json['actualUnitPrice'] as num?)?.toDouble(),
+        mrp: (json['mrp'] as num?)?.toDouble(),
+        salePrice: (json['salePrice'] as num?)?.toDouble(),
         createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
             DateTime.now(),
         checked: json['checked'] == true,

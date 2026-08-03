@@ -502,6 +502,33 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 )),
           const SizedBox(height: 20),
           const _SectionTitle(
+            icon: Icons.trending_down,
+            title: 'Price drops',
+          ),
+          const SizedBox(height: 10),
+          if (data.priceDrops.isEmpty)
+            const _EmptyCard(
+                'Price drops will appear when repeated products get cheaper.')
+          else
+            ...data.priceDrops.take(8).map((item) => Card(
+                  color: CartSenseColors.success,
+                  child: ListTile(
+                    leading: const Icon(Icons.arrow_downward, color: _green),
+                    title: Text(item.name),
+                    subtitle: Text(
+                      'Was ₹${item.previousPrice!.toStringAsFixed(2)} · now ₹${item.latestPrice.toStringAsFixed(2)} at ${item.latestStore}',
+                    ),
+                    trailing: Text(
+                      '${item.priceChangePercent.toStringAsFixed(0)}%',
+                      style: const TextStyle(
+                        color: _green,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                )),
+          const SizedBox(height: 20),
+          const _SectionTitle(
             icon: Icons.storefront_outlined,
             title: 'Better prices nearby',
           ),
@@ -757,13 +784,15 @@ List<_MonthAlert> _monthAlerts(List<Receipt> receipts, double budget) {
     final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
     final projected =
         now.day == 0 ? thisMonth : thisMonth / now.day * daysInMonth;
+    final basis =
+        'Based on ₹${thisMonth.toStringAsFixed(0)} spent in ${now.day} day${now.day == 1 ? '' : 's'} × $daysInMonth days.';
     alerts.add(_MonthAlert(
       projected > budget
           ? Icons.warning_amber_rounded
           : Icons.verified_outlined,
       projected > budget
-          ? 'Projected monthly spend is ₹${projected.toStringAsFixed(0)}, about ₹${(projected - budget).toStringAsFixed(0)} over budget.'
-          : 'Projected monthly spend is ₹${projected.toStringAsFixed(0)}, within your ₹${budget.toStringAsFixed(0)} budget.',
+          ? 'Projected monthly spend is ₹${projected.toStringAsFixed(0)}, about ₹${(projected - budget).toStringAsFixed(0)} over budget. $basis'
+          : 'Projected monthly spend is ₹${projected.toStringAsFixed(0)}, within your ₹${budget.toStringAsFixed(0)} budget. $basis',
     ));
   }
   return alerts;
@@ -888,7 +917,13 @@ List<_ProductSpend> _topExpensiveItems(List<Receipt> receipts) {
       );
     }
   }
-  return items.values.toList()..sort((a, b) => b.total.compareTo(a.total));
+  final ranked = items.values.toList()
+    ..sort((a, b) => b.total.compareTo(a.total));
+  if (ranked.isEmpty) return ranked;
+  final threshold = (ranked.first.total * .1).clamp(75, double.infinity);
+  final focused =
+      ranked.where((item) => item.total >= threshold).take(12).toList();
+  return focused.isEmpty ? ranked.take(8).toList() : focused;
 }
 
 class _StoreSpend {
