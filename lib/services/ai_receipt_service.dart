@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/receipt.dart';
 
@@ -25,7 +23,7 @@ class AiReceiptService {
             endpoint ?? const String.fromEnvironment('CARTSENSE_AI_ENDPOINT');
 
   static const _deviceIdKey = 'cartsense_ai_device_id';
-  static const _safeUploadBytes = 900 * 1024;
+  static const _safeUploadBytes = 12 * 1024 * 1024;
 
   final http.Client client;
   final String endpoint;
@@ -33,25 +31,48 @@ class AiReceiptService {
   bool get isConfigured => endpoint.trim().isNotEmpty;
 
   Future<Receipt> parse(File image) async {
+    return parseImages([image]);
+  }
+
+  Future<Receipt> parseImages(List<File> images) async {
     if (!isConfigured) {
       throw const AiReceiptException(
         'AI Enhanced Scan is not configured in this build. Use private scanning for now.',
         code: 'AI_NOT_CONFIGURED',
       );
     }
+    if (images.isEmpty) {
+      throw const AiReceiptException(
+        'Add at least one receipt photo to scan.',
+        code: 'IMAGE_REQUIRED',
+      );
+    }
+    if (images.length > 4) {
+      throw const AiReceiptException(
+        'Use up to 4 photos for one long receipt.',
+        code: 'TOO_MANY_IMAGES',
+      );
+    }
 
-    final uploadImage = await _prepareUpload(image);
+    final uploadImages = <File>[];
+    for (final image in images) {
+      uploadImages.add(await _prepareUpload(image));
+    }
     final request = http.MultipartRequest('POST', Uri.parse(endpoint));
     request.headers.addAll({
       'x-cartsense-device': await _deviceId(),
       'x-cartsense-client': 'android/0.9.0',
+      'x-cartsense-receipt-parts': uploadImages.length.toString(),
     });
-    request.files.add(await http.MultipartFile.fromPath(
-      'receipt',
-      uploadImage.path,
-      filename: 'receipt${_extensionFor(uploadImage.path)}',
-      contentType: _mediaTypeFor(uploadImage.path),
-    ));
+    for (var index = 0; index < uploadImages.length; index += 1) {
+      final uploadImage = uploadImages[index];
+      request.files.add(await http.MultipartFile.fromPath(
+        'receipt',
+        uploadImage.path,
+        filename: 'receipt_part_${index + 1}${_extensionFor(uploadImage.path)}',
+        contentType: _mediaTypeFor(uploadImage.path),
+      ));
+    }
 
     late http.StreamedResponse streamed;
     try {
@@ -106,7 +127,7 @@ class AiReceiptService {
       );
     }
     final receipt = Receipt.fromJson(Map<String, dynamic>.from(receiptJson));
-    receipt.imagePath = image.path;
+    receipt.imagePath = images.first.path;
     if (receipt.items.isEmpty || receipt.printedTotal <= 0) {
       throw const AiReceiptException(
         'The AI found text but could not confirm the products and total. Retake a clearer photo.',
@@ -117,33 +138,12 @@ class AiReceiptService {
   }
 
   Future<File> _prepareUpload(File image) async {
-    if (await image.length() <= _safeUploadBytes &&
-        !image.path.toLowerCase().endsWith('.png')) {
+    if (await image.length() <= _safeUploadBytes) {
       return image;
     }
 
-    final directory = await getTemporaryDirectory();
-    File? best;
-    for (final quality in const [82, 68, 54, 42]) {
-      final target =
-          '${directory.path}${Platform.pathSeparator}cartsense-ai-${DateTime.now().microsecondsSinceEpoch}-$quality.jpg';
-      final compressed = await FlutterImageCompress.compressAndGetFile(
-        image.absolute.path,
-        target,
-        minWidth: 1600,
-        minHeight: 1600,
-        quality: quality,
-        format: CompressFormat.jpeg,
-        keepExif: false,
-      );
-      if (compressed == null) continue;
-      best = File(compressed.path);
-      if (await best.length() <= _safeUploadBytes) return best;
-    }
-
-    if (best != null && await best.length() <= _safeUploadBytes) return best;
     throw const AiReceiptException(
-      'This photo is too large to scan. Crop it to the receipt and try again.',
+      'This photo is too large to scan. Crop it to the receipt or retake it closer to the bill.',
       code: 'IMAGE_TOO_LARGE',
     );
   }

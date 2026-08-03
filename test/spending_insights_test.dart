@@ -77,5 +77,21 @@ void main() {
       GroceryCategory.infer('Freedom Sunfl 1lt'),
       GroceryCategory.cookingOils,
     );
+    expect(
+      GroceryCategory.infer('Sanitary Pads XL'),
+      GroceryCategory.sanitaryCare,
+    );
+    expect(
+      GroceryCategory.infer('Dabur Glucose 200g'),
+      GroceryCategory.snacks,
+    );
+    expect(
+      GroceryCategory.infer('Heritage Panee'),
+      GroceryCategory.dairy,
+    );
+    expect(
+      GroceryCategory.infer('Gold Drop Oil 1L'),
+      GroceryCategory.cookingOils,
+    );
   });
 }

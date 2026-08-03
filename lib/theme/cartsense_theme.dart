@@ -53,11 +53,12 @@ ThemeData buildCartSenseTheme() {
     cardTheme: const CardThemeData(
       color: CartSenseColors.surface,
       surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      margin: EdgeInsets.symmetric(vertical: 5),
+      elevation: 1.2,
+      shadowColor: Color(0x220B3D2D),
+      margin: EdgeInsets.symmetric(vertical: 6),
       shape: RoundedRectangleBorder(
         side: BorderSide(color: CartSenseColors.outline),
-        borderRadius: BorderRadius.all(Radius.circular(18)),
+        borderRadius: BorderRadius.all(Radius.circular(20)),
       ),
     ),
     inputDecorationTheme: const InputDecorationTheme(
@@ -79,18 +80,27 @@ ThemeData buildCartSenseTheme() {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size(48, 50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        minimumSize: const Size(48, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         textStyle: const TextStyle(fontWeight: FontWeight.w800),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size(48, 50),
+        minimumSize: const Size(48, 52),
         side: const BorderSide(color: CartSenseColors.outline),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         textStyle: const TextStyle(fontWeight: FontWeight.w700),
       ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: CartSenseColors.primaryDark,
+      contentTextStyle: const TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.w700,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
     chipTheme: base.chipTheme.copyWith(
       backgroundColor: CartSenseColors.surfaceMuted,

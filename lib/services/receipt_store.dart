@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/receipt.dart';
+import 'product_memory_store.dart';
 
 class ReceiptStore {
   static const _key = 'cartsense_receipts_v1';
@@ -32,10 +33,25 @@ class ReceiptStore {
       }
       await prefs.setInt(_categoryRulesKey, _categoryRulesVersion);
     }
+    var memoryChanged = false;
+    final memory = ProductMemoryStore();
+    for (final receipt in receipts) {
+      memoryChanged = await memory.applyToReceipt(receipt) || memoryChanged;
+    }
+    if (memoryChanged) {
+      await prefs.setStringList(
+        _key,
+        receipts.map((receipt) => receipt.encode()).toList(),
+      );
+    }
     return receipts..sort((a, b) => b.purchasedAt.compareTo(a.purchasedAt));
   }
 
   Future<void> save(Receipt receipt) async {
+    final memory = ProductMemoryStore();
+    for (final item in receipt.items) {
+      await memory.rememberItem(scannedName: item.name, corrected: item);
+    }
     await _preserveReceiptImage(receipt);
     final prefs = await SharedPreferences.getInstance();
     final receipts = await load();

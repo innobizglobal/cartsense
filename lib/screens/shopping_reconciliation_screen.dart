@@ -5,6 +5,7 @@ import '../models/shopping_reconciliation.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
 import '../theme/cartsense_theme.dart';
+import '../widgets/app_footer_nav.dart';
 import '../widgets/category_icon.dart';
 
 const _green = CartSenseColors.primary;
@@ -16,10 +17,16 @@ class ShoppingReconciliationScreen extends StatefulWidget {
     super.key,
     required this.receipt,
     required this.plannedItems,
+    this.activeShoppingCount = 0,
+    this.onOpenShoppingList,
+    this.onOpenInsights,
   });
 
   final Receipt receipt;
   final List<ShoppingItem> plannedItems;
+  final int activeShoppingCount;
+  final VoidCallback? onOpenShoppingList;
+  final VoidCallback? onOpenInsights;
 
   @override
   State<ShoppingReconciliationScreen> createState() =>
@@ -229,29 +236,49 @@ class _ShoppingReconciliationScreenState
             ],
           ],
         ),
-        bottomNavigationBar: SafeArea(
-          child: Container(
-            color: _ivory,
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: _green,
-                padding: const EdgeInsets.all(16),
-              ),
-              onPressed: finishing ? null : _finish,
-              icon: finishing
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.done_all),
-              label: Text(
-                finishing
-                    ? 'Finishing trip…'
-                    : 'Finish trip · keep $missingCount on list',
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SafeArea(
+              top: false,
+              bottom: false,
+              child: Container(
+                color: _ivory,
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _green,
+                    padding: const EdgeInsets.all(16),
+                  ),
+                  onPressed: finishing ? null : _finish,
+                  icon: finishing
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.done_all),
+                  label: Text(
+                    finishing
+                        ? 'Finishing trip…'
+                        : 'Finish trip · keep $missingCount on list',
+                  ),
+                ),
               ),
             ),
-          ),
+            CartSenseFooterNav(
+              selectedIndex: 1,
+              activeShoppingCount: widget.activeShoppingCount,
+              onDestinationSelected: (index) {
+                if (index == 0) {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                } else if (index == 2) {
+                  widget.onOpenShoppingList?.call();
+                } else if (index == 3) {
+                  widget.onOpenInsights?.call();
+                }
+              },
+            ),
+          ],
         ),
       );
 

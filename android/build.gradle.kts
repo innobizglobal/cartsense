@@ -6,8 +6,9 @@ allprojects {
 }
 
 val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
+    providers.environmentVariable("CARTSENSE_GRADLE_BUILD_DIR")
+        .map { rootProject.layout.projectDirectory.dir(it) }
+        .orElse(rootProject.layout.buildDirectory.dir("../../build"))
         .get()
 rootProject.layout.buildDirectory.value(newBuildDir)
 

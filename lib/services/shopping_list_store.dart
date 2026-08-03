@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../models/shopping_item.dart';
+import 'product_memory_store.dart';
 
 class ShoppingListStore {
   static const _key = 'cartsense_shopping_list_v1';
@@ -12,8 +13,14 @@ class ShoppingListStore {
         .map(ShoppingItem.decode)
         .toList();
     var changed = false;
+    final memory = await ProductMemoryStore().load();
     for (final item in items) {
-      if (item.category == GroceryCategory.other) {
+      final key = normalizedProductName(item.name);
+      final remembered = memory[key];
+      if (remembered != null && item.category != remembered.category) {
+        item.category = remembered.category;
+        changed = true;
+      } else if (item.category == GroceryCategory.other) {
         final inferred = GroceryCategory.infer(item.name);
         if (inferred != GroceryCategory.other) {
           item.category = inferred;
@@ -95,6 +102,10 @@ class ShoppingListStore {
         item.reconciledReceiptId = null;
         item.purchasedName = null;
         item.actualUnitPrice = null;
+        item.note = item.note.toLowerCase().contains('missed')
+            ? item.note
+            : 'Missed in the last reconciled shopping trip.';
+        item.remindAt ??= DateTime.now().add(const Duration(days: 1));
         continue;
       }
       final purchased = receipt.items[receiptIndex];
@@ -102,6 +113,8 @@ class ShoppingListStore {
       item.completedAt = receipt.purchasedAt;
       item.reconciledReceiptId = receipt.id;
       item.purchasedName = purchased.name;
+      if (item.note.toLowerCase().contains('missed')) item.note = '';
+      item.remindAt = null;
       item.actualUnitPrice = purchased.unitPrice > 0
           ? purchased.unitPrice
           : purchased.quantity > 0

@@ -19,6 +19,23 @@ IconData groceryCategoryIcon(String category) => switch (category) {
       _ => Icons.shopping_basket_outlined,
     };
 
+Color groceryCategoryColor(String category) => switch (category) {
+      GroceryCategory.produce => const Color(0xFFDFF5D6),
+      GroceryCategory.dairy => const Color(0xFFE2F0FF),
+      GroceryCategory.cookingOils => const Color(0xFFFFF1C7),
+      GroceryCategory.teaCoffee => const Color(0xFFEBDCCB),
+      GroceryCategory.pantry => const Color(0xFFE8E0FF),
+      GroceryCategory.beverages => const Color(0xFFD7F4F6),
+      GroceryCategory.snacks => const Color(0xFFFFE2C6),
+      GroceryCategory.breakfastBakery => const Color(0xFFFFE6D8),
+      GroceryCategory.frozenReady => const Color(0xFFDDEEFF),
+      GroceryCategory.household => const Color(0xFFE1F1EA),
+      GroceryCategory.personalCare => const Color(0xFFFFE0EF),
+      GroceryCategory.sanitaryCare => const Color(0xFFFFDFE6),
+      GroceryCategory.babyCare => const Color(0xFFFFEBCF),
+      _ => CartSenseColors.success,
+    };
+
 class CategoryAvatar extends StatelessWidget {
   const CategoryAvatar(
       {super.key, required this.category, this.completed = false});
@@ -33,8 +50,9 @@ class CategoryAvatar extends StatelessWidget {
         decoration: BoxDecoration(
           color: completed
               ? CartSenseColors.surfaceMuted
-              : CartSenseColors.success,
+              : groceryCategoryColor(category),
           borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: CartSenseColors.outline),
         ),
         child: Icon(
           completed ? Icons.check : groceryCategoryIcon(category),

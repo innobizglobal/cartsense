@@ -4,9 +4,12 @@ import '../models/product_catalog.dart';
 import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../models/shopping_item.dart';
+import '../services/budget_store.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
+import 'product_master_screen.dart';
 import '../theme/cartsense_theme.dart';
+import '../widgets/app_footer_nav.dart';
 import '../widgets/category_icon.dart';
 
 const _green = CartSenseColors.primary;
@@ -14,9 +17,16 @@ const _lime = CartSenseColors.accent;
 const _ivory = CartSenseColors.background;
 
 class ShoppingListScreen extends StatefulWidget {
-  const ShoppingListScreen({super.key, required this.receipts});
+  const ShoppingListScreen({
+    super.key,
+    required this.receipts,
+    this.activeShoppingCount = 0,
+    this.onOpenInsights,
+  });
 
   final List<Receipt> receipts;
+  final int activeShoppingCount;
+  final VoidCallback? onOpenInsights;
 
   @override
   State<ShoppingListScreen> createState() => _ShoppingListScreenState();
@@ -24,10 +34,12 @@ class ShoppingListScreen extends StatefulWidget {
 
 class _ShoppingListScreenState extends State<ShoppingListScreen> {
   final store = ShoppingListStore();
+  final budgetStore = BudgetStore();
   final queryController = TextEditingController();
   List<ShoppingItem> items = [];
   List<CatalogProduct> searchResults = [];
   bool loading = true;
+  double monthlyBudget = 0;
 
   late final ProductCatalog catalog =
       ProductCatalog.fromReceipts(widget.receipts);
@@ -49,6 +61,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   void initState() {
     super.initState();
     _load();
+    _loadBudget();
   }
 
   @override
@@ -65,6 +78,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         loading = false;
       });
     }
+  }
+
+  Future<void> _loadBudget() async {
+    final budget = await budgetStore.load();
+    if (mounted) setState(() => monthlyBudget = budget);
   }
 
   void _search(String value) {
@@ -135,6 +153,42 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     }
   }
 
+  ShoppingItem _itemFromProduct(CatalogProduct product) => ShoppingItem(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: product.name,
+        quantity: 1,
+        category: product.category,
+        expectedUnitPrice: product.latestUnitPrice,
+        bestUnitPrice: product.bestUnitPrice,
+        bestStore: product.bestStore,
+        latestStore: product.latestStore,
+        createdAt: DateTime.now(),
+      );
+
+  ShoppingItem _itemFromFrequent(FrequentProduct product) => ShoppingItem(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: product.name,
+        quantity: 1,
+        category: product.category,
+        expectedUnitPrice: product.latestPrice,
+        bestUnitPrice: product.bestPrice,
+        bestStore: product.bestStore,
+        latestStore: product.bestStore,
+        note: 'Suggested from your repeat purchases.',
+        createdAt: DateTime.now(),
+      );
+
+  Future<void> _addQuick(ShoppingItem item) async {
+    await store.add(item);
+    await _load();
+    queryController.clear();
+    if (!mounted) return;
+    setState(() => searchResults = []);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${item.name} added to your shopping list.'),
+    ));
+  }
+
   Future<void> _toggle(ShoppingItem item, bool checked) async {
     setState(() {
       item.checked = checked;
@@ -191,6 +245,32 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     );
   }
 
+  Future<void> _openTripMode() async {
+    final scanNow = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => _ShoppingTripModeScreen(
+          items: activeItems,
+          onToggle: _toggle,
+          onEdit: (item) => _openEditor(existing: item),
+        ),
+      ),
+    );
+    await _load();
+    if (scanNow == true && mounted) Navigator.pop(context, true);
+  }
+
+  Future<void> _openProductMaster() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ProductMasterScreen(
+        receipts: widget.receipts,
+        activeShoppingCount: activeItems.length,
+        onOpenShoppingList: () {},
+        onOpenInsights: widget.onOpenInsights,
+      ),
+    ));
+    await _load();
+  }
+
   Map<String, List<ShoppingItem>> get _storePlan {
     final plan = <String, List<ShoppingItem>>{};
     for (final item in activeItems) {
@@ -217,12 +297,24 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     final recognizedCategory = queryController.text.trim().isEmpty
         ? null
         : GroceryCategory.infer(queryController.text);
+    final monthSpend = intelligence.currentMonthTotal;
+    final projectedMonthSpend = monthSpend + estimatedTotal;
+    final budgetRemaining =
+        monthlyBudget <= 0 ? 0.0 : monthlyBudget - projectedMonthSpend;
+    final missedItems = activeItems
+        .where((item) => item.note.toLowerCase().contains('missed'))
+        .toList();
 
     return Scaffold(
       backgroundColor: _ivory,
       appBar: AppBar(
         title: const Text('Shopping list'),
         actions: [
+          IconButton(
+            tooltip: 'Product master',
+            onPressed: _openProductMaster,
+            icon: const Icon(Icons.inventory_2_outlined),
+          ),
           IconButton(
             tooltip: 'Share list',
             onPressed: activeItems.isEmpty ? null : _shareList,
@@ -291,6 +383,20 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                   ),
                                 ],
                               ),
+                              if (monthlyBudget > 0) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  budgetRemaining >= 0
+                                      ? 'After this trip: â‚¹${budgetRemaining.toStringAsFixed(0)} monthly budget left'
+                                      : 'After this trip: â‚¹${budgetRemaining.abs().toStringAsFixed(0)} over monthly budget',
+                                  style: TextStyle(
+                                    color: budgetRemaining >= 0
+                                        ? Colors.white70
+                                        : Colors.orange.shade100,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -310,6 +416,64 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                               ),
                             ],
                           ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (activeItems.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _openTripMode,
+                          icon: const Icon(Icons.local_grocery_store_outlined),
+                          label: const Text('Start trip'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _shareList,
+                          icon: const Icon(Icons.ios_share_outlined),
+                          label: const Text('Share list'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Card(
+                  color: CartSenseColors.surfaceMuted,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'How to use Shopping Assistant',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _workflowStep(
+                          Icons.edit_note_outlined,
+                          '1. Plan',
+                          'Add products before you leave. Your list is saved on this phone.',
+                        ),
+                        _workflowStep(
+                          Icons.storefront_outlined,
+                          '2. Shop',
+                          'Open this list in the store and tick items as you put them in the cart.',
+                        ),
+                        _workflowStep(
+                          Icons.document_scanner_outlined,
+                          '3. Scan & reconcile',
+                          'After checkout, scan the bill. CartSense will mark bought, missed and extra items.',
+                          isLast: true,
+                        ),
                       ],
                     ),
                   ),
@@ -377,12 +541,41 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                             '${product.category} · latest ₹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
                           ),
                           trailing: product.bestStore == product.latestStore
-                              ? const Icon(Icons.add_circle_outline)
+                              ? IconButton(
+                                  tooltip: 'Quick add',
+                                  onPressed: () =>
+                                      _addQuick(_itemFromProduct(product)),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                )
                               : Text(
                                   'Best ₹${product.bestUnitPrice.toStringAsFixed(2)}\n${product.bestStore}',
                                   textAlign: TextAlign.end,
                                   style: const TextStyle(fontSize: 12),
                                 ),
+                        ),
+                      )),
+                ],
+                if (missedItems.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _sectionTitle(
+                    Icons.notification_important_outlined,
+                    'Missed last trip',
+                  ),
+                  ...missedItems.map((item) => Card(
+                        color: CartSenseColors.warning,
+                        child: ListTile(
+                          leading: CategoryAvatar(category: item.category),
+                          title: Text(
+                            item.name,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          subtitle: const Text(
+                            'Still on your list after reconciliation. Pick this first next trip.',
+                          ),
+                          trailing: TextButton(
+                            onPressed: () => _toggle(item, true),
+                            child: const Text('Bought'),
+                          ),
                         ),
                       )),
                 ],
@@ -393,7 +586,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                     child: Padding(
                       padding: EdgeInsets.all(20),
                       child: Text(
-                        'Search for a product above. CartSense will recognize its category and show matching products from your bills.',
+                        'Add tea, milk, oil or any product above. CartSense saves the list here so you can open it at the store and tick items while shopping.',
                       ),
                     ),
                   )
@@ -461,7 +654,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           ),
                           trailing: IconButton(
                             tooltip: 'Add to list',
-                            onPressed: () => _openEditor(frequent: suggestion),
+                            onPressed: () =>
+                                _addQuick(_itemFromFrequent(suggestion)),
                             icon: const Icon(Icons.add_circle, color: _green),
                           ),
                         ),
@@ -526,7 +720,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           ),
                           const SizedBox(height: 5),
                           const Text(
-                            'Scan the checkout bill to match purchases, keep missing products, and find unplanned spending.',
+                            'Scan the checkout bill to compare it with this saved list. Bought items are completed, missed items stay on the list, and extra purchases are shown separately.',
                             style: TextStyle(color: Colors.white70),
                           ),
                           const SizedBox(height: 14),
@@ -546,6 +740,20 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                 ],
               ],
             ),
+      bottomNavigationBar: CartSenseFooterNav(
+        selectedIndex: 2,
+        activeShoppingCount: activeItems.length,
+        onDestinationSelected: (index) {
+          if (index == 0) {
+            Navigator.pop(context, false);
+          } else if (index == 1) {
+            Navigator.pop(context, true);
+          } else if (index == 3) {
+            Navigator.pop(context, false);
+            widget.onOpenInsights?.call();
+          }
+        },
+      ),
     );
   }
 
@@ -561,6 +769,49 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   .textTheme
                   .titleMedium
                   ?.copyWith(fontWeight: FontWeight.w900),
+            ),
+          ],
+        ),
+      );
+
+  Widget _workflowStep(
+    IconData icon,
+    String title,
+    String body, {
+    bool isLast = false,
+  }) =>
+      Padding(
+        padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: _green.withValues(alpha: .1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 19, color: _green),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  Text(
+                    body,
+                    style: const TextStyle(
+                      color: CartSenseColors.textMuted,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -868,6 +1119,269 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                 Text(widget.existing == null ? 'Add to list' : 'Save changes'),
           ),
         ],
+      );
+}
+
+class _ShoppingTripModeScreen extends StatefulWidget {
+  const _ShoppingTripModeScreen({
+    required this.items,
+    required this.onToggle,
+    required this.onEdit,
+  });
+
+  final List<ShoppingItem> items;
+  final Future<void> Function(ShoppingItem item, bool checked) onToggle;
+  final void Function(ShoppingItem item) onEdit;
+
+  @override
+  State<_ShoppingTripModeScreen> createState() =>
+      _ShoppingTripModeScreenState();
+}
+
+class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
+  bool updating = false;
+
+  List<ShoppingItem> get stillToBuy =>
+      widget.items.where((item) => !item.checked).toList();
+  List<ShoppingItem> get inCart =>
+      widget.items.where((item) => item.checked).toList();
+  double get progress =>
+      widget.items.isEmpty ? 0 : inCart.length / widget.items.length;
+  double get cartEstimate =>
+      inCart.fold(0, (total, item) => total + item.estimatedTotal);
+
+  Future<void> _toggle(ShoppingItem item, bool checked) async {
+    setState(() => updating = true);
+    await widget.onToggle(item, checked);
+    if (mounted) {
+      setState(() => updating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: _ivory,
+        appBar: AppBar(
+          title: const Text('Trip mode'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Exit'),
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 120),
+          children: [
+            Card(
+              color: _green,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.local_grocery_store_outlined, color: _lime),
+                        SizedBox(width: 8),
+                        Text(
+                          'In-store checklist',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 10,
+                      backgroundColor: Colors.white24,
+                      valueColor: const AlwaysStoppedAnimation<Color>(_lime),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${inCart.length}/${widget.items.length} in cart · ₹${cartEstimate.toStringAsFixed(2)} estimated',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (stillToBuy.isNotEmpty) ...[
+              _tripSectionTitle(
+                Icons.radio_button_unchecked,
+                'Still to buy',
+                stillToBuy.length,
+              ),
+              ...stillToBuy.map(
+                (item) => _TripItemCard(
+                  item: item,
+                  checked: false,
+                  onToggle: updating ? null : () => _toggle(item, true),
+                  onEdit: () => widget.onEdit(item),
+                ),
+              ),
+            ] else
+              Card(
+                color: CartSenseColors.success,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: _green.withValues(alpha: .12),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child:
+                            const Icon(Icons.done_all, color: _green, size: 30),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Everything is in your cart',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      const Text(
+                        'After checkout, scan the bill to reconcile your trip.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (inCart.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              _tripSectionTitle(
+                  Icons.shopping_cart_checkout, 'In cart', inCart.length),
+              ...inCart.map(
+                (item) => _TripItemCard(
+                  item: item,
+                  checked: true,
+                  onToggle: updating ? null : () => _toggle(item, false),
+                  onEdit: () => widget.onEdit(item),
+                ),
+              ),
+            ],
+          ],
+        ),
+        bottomNavigationBar: SafeArea(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+            decoration: const BoxDecoration(
+              color: CartSenseColors.surface,
+              border: Border(top: BorderSide(color: CartSenseColors.outline)),
+            ),
+            child: FilledButton.icon(
+              onPressed: widget.items.isEmpty
+                  ? null
+                  : () => Navigator.pop(context, true),
+              icon: const Icon(Icons.document_scanner_outlined),
+              label: const Text('Checkout done — scan bill'),
+            ),
+          ),
+        ),
+      );
+
+  Widget _tripSectionTitle(IconData icon, String title, int count) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          children: [
+            Icon(icon, color: _green),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w900),
+              ),
+            ),
+            Chip(label: Text('$count')),
+          ],
+        ),
+      );
+}
+
+class _TripItemCard extends StatelessWidget {
+  const _TripItemCard({
+    required this.item,
+    required this.checked,
+    required this.onToggle,
+    required this.onEdit,
+  });
+
+  final ShoppingItem item;
+  final bool checked;
+  final VoidCallback? onToggle;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        color: checked ? CartSenseColors.success : CartSenseColors.surface,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onToggle,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: checked ? _green : CartSenseColors.surfaceMuted,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    checked ? Icons.check : Icons.add_shopping_cart_outlined,
+                    color: checked ? Colors.white : _green,
+                    size: 29,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${item.quantity.g} × ${item.name}',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          decoration:
+                              checked ? TextDecoration.lineThrough : null,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${item.category}${item.expectedUnitPrice > 0 ? ' · about ₹${item.estimatedTotal.toStringAsFixed(2)}' : ''}',
+                        style: const TextStyle(
+                          color: CartSenseColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Edit product',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.more_vert),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
 }
 

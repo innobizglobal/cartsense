@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../services/budget_store.dart';
+import '../services/receipt_export.dart';
+import '../services/receipt_store.dart';
 import '../theme/cartsense_theme.dart';
+import '../widgets/app_footer_nav.dart';
 import '../widgets/category_icon.dart';
 
 const _green = CartSenseColors.primary;
@@ -10,9 +13,18 @@ const _lime = CartSenseColors.accent;
 const _ivory = CartSenseColors.background;
 
 class InsightsScreen extends StatefulWidget {
-  const InsightsScreen({super.key, required this.receipts});
+  const InsightsScreen({
+    super.key,
+    required this.receipts,
+    this.activeShoppingCount = 0,
+    this.onScan,
+    this.onOpenShoppingList,
+  });
 
   final List<Receipt> receipts;
+  final int activeShoppingCount;
+  final VoidCallback? onScan;
+  final VoidCallback? onOpenShoppingList;
 
   @override
   State<InsightsScreen> createState() => _InsightsScreenState();
@@ -20,20 +32,37 @@ class InsightsScreen extends StatefulWidget {
 
 class _InsightsScreenState extends State<InsightsScreen> {
   final _budgetStore = BudgetStore();
+  final _receiptStore = ReceiptStore();
+  late List<Receipt> _receipts = widget.receipts;
   double budget = 0;
 
   SavingsIntelligence get insights =>
-      SavingsIntelligence.fromReceipts(widget.receipts);
+      SavingsIntelligence.fromReceipts(_receipts);
 
   @override
   void initState() {
     super.initState();
     _loadBudget();
+    _loadReceipts();
+  }
+
+  @override
+  void didUpdateWidget(covariant InsightsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.receipts != widget.receipts) {
+      _receipts = widget.receipts;
+      _loadReceipts();
+    }
   }
 
   Future<void> _loadBudget() async {
     final value = await _budgetStore.load();
     if (mounted) setState(() => budget = value);
+  }
+
+  Future<void> _loadReceipts() async {
+    final receipts = await _receiptStore.load();
+    if (mounted) setState(() => _receipts = receipts);
   }
 
   Future<void> _editBudget() async {
@@ -75,6 +104,76 @@ class _InsightsScreenState extends State<InsightsScreen> {
     controller.dispose();
   }
 
+  Future<void> _showReportExportOptions() async {
+    if (_receipts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Save a bill first, then CartSense can export a report.'),
+      ));
+      return;
+    }
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Export reports',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text('Choose the format you want to share or save.'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.table_chart_outlined),
+              title: const Text('CSV report'),
+              subtitle: const Text('Open in Excel or Google Sheets'),
+              onTap: () => Navigator.pop(context, 'csv'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf_outlined),
+              title: const Text('Monthly PDF report'),
+              subtitle: const Text('Readable summary for sharing'),
+              onTap: () => Navigator.pop(context, 'pdf'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.chat_outlined),
+              title: const Text('WhatsApp summary'),
+              subtitle: const Text('Short message with totals and categories'),
+              onTap: () => Navigator.pop(context, 'text'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bar_chart_outlined),
+              title: const Text('Category chart image'),
+              subtitle: const Text('Share category spend as an image file'),
+              onTap: () => Navigator.pop(context, 'chart'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.archive_outlined),
+              title: const Text('Full export bundle'),
+              subtitle: const Text('Reports plus CartSense backup'),
+              onTap: () => Navigator.pop(context, 'bundle'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    final export = ReceiptExport();
+    if (choice == 'csv') {
+      await export.shareInsightsReport(_receipts);
+    } else if (choice == 'pdf') {
+      await export.shareMonthlyPdfReport(_receipts);
+    } else if (choice == 'text') {
+      await export.shareWhatsAppSummary(_receipts);
+    } else if (choice == 'chart') {
+      await export.shareCategoryChart(_receipts);
+    } else if (choice == 'bundle') {
+      await export.shareFullExportBundle(_receipts);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = insights;
@@ -83,15 +182,53 @@ class _InsightsScreenState extends State<InsightsScreen> {
       0.0,
       (maximum, item) => item.total > maximum ? item.total : maximum,
     );
-    final categories = data.categoryTotals.entries.toList()
+    final allCategoryTotals = _categoryTotals(_receipts);
+    final showingAllCategories =
+        data.categoryTotals.isEmpty && allCategoryTotals.isNotEmpty;
+    final categorySource =
+        showingAllCategories ? allCategoryTotals : data.categoryTotals;
+    final categories = categorySource.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final storeTotals = _storeTotals(_receipts);
+    final expensiveItems = _topExpensiveItems(_receipts);
+    final monthAlerts = _monthAlerts(_receipts, budget);
+    final categoryAlerts = _categoryIncreaseAlerts(_receipts);
+    final dueProducts = data.frequentProducts
+        .where((item) => item.isDueAt(DateTime.now()))
+        .take(6)
+        .toList();
 
     return Scaffold(
       backgroundColor: _ivory,
-      appBar: AppBar(title: const Text('Insights')),
+      appBar: AppBar(
+        title: const Text('Insights'),
+        actions: [
+          IconButton(
+            tooltip: 'Export report',
+            onPressed: _showReportExportOptions,
+            icon: const Icon(Icons.ios_share_outlined),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
         children: [
+          Card(
+            color: CartSenseColors.surface,
+            child: ListTile(
+              leading: const Icon(Icons.file_download_outlined, color: _green),
+              title: const Text(
+                'Export grocery report',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: const Text(
+                'CSV, PDF, WhatsApp summary, category chart or full backup bundle.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _showReportExportOptions,
+            ),
+          ),
+          const SizedBox(height: 12),
           Card(
             color: _green,
             child: Padding(
@@ -151,6 +288,60 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 14),
+          if (monthAlerts.isNotEmpty) ...[
+            _SmartInsightCard(alerts: monthAlerts),
+            const SizedBox(height: 14),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: _MetricTile(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Saved bills',
+                  value: '${_receipts.length}',
+                  color: CartSenseColors.surface,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MetricTile(
+                  icon: Icons.savings_outlined,
+                  label: 'Possible saving',
+                  value: '₹${data.possibleBasketSaving.toStringAsFixed(0)}',
+                  color: CartSenseColors.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const _SectionTitle(
+            icon: Icons.auto_graph_outlined,
+            title: 'Spending alerts',
+          ),
+          const SizedBox(height: 10),
+          if (categoryAlerts.isEmpty)
+            const _EmptyCard(
+              'Scan another month of bills to see category increase alerts.',
+            )
+          else
+            ...categoryAlerts.take(5).map((alert) => Card(
+                  color: CartSenseColors.warning,
+                  child: ListTile(
+                    leading: CategoryAvatar(category: alert.category),
+                    title: Text(
+                      alert.category,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    subtitle: Text(
+                      'Last month ₹${alert.previous.toStringAsFixed(0)} • this month ₹${alert.current.toStringAsFixed(0)}',
+                    ),
+                    trailing: Text(
+                      '+${alert.percent.toStringAsFixed(0)}%',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                )),
           const SizedBox(height: 20),
           const _SectionTitle(
             icon: Icons.show_chart,
@@ -202,22 +393,89 @@ class _InsightsScreenState extends State<InsightsScreen> {
           const SizedBox(height: 20),
           const _SectionTitle(
             icon: Icons.category_outlined,
-            title: 'This month by category',
+            title: 'Category spend',
+          ),
+          Text(
+            showingAllCategories ? 'All saved bills' : 'This month',
+            style: const TextStyle(color: CartSenseColors.textMuted),
           ),
           const SizedBox(height: 10),
           if (categories.isEmpty)
             const _EmptyCard('Categories will appear after you save a bill.')
           else
-            ...categories.map((entry) => Card(
+            _ThinScrollableCard(
+              rowCount: categories.length,
+              children: categories
+                  .map(
+                    (entry) => ListTile(
+                      leading: CategoryAvatar(category: entry.key),
+                      title: Text(entry.key),
+                      trailing: Text(
+                        '₹${entry.value.toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          const SizedBox(height: 20),
+          const _SectionTitle(
+            icon: Icons.store_mall_directory_outlined,
+            title: 'Store comparison',
+          ),
+          const SizedBox(height: 10),
+          if (storeTotals.isEmpty)
+            const _EmptyCard('Store spend appears after you save receipts.')
+          else
+            ...storeTotals.take(5).map((store) => Card(
                   child: ListTile(
-                    leading: CategoryAvatar(category: entry.key),
-                    title: Text(entry.key),
-                    trailing: Text(
-                      '₹${entry.value.toStringAsFixed(2)}',
+                    leading:
+                        const Icon(Icons.storefront_outlined, color: _green),
+                    title: Text(
+                      store.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: Text('${store.billCount} bills'),
+                    trailing: Text(
+                      '₹${store.total.toStringAsFixed(0)}',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ),
                 )),
+          const SizedBox(height: 20),
+          const _SectionTitle(
+            icon: Icons.local_fire_department_outlined,
+            title: 'Top expensive products',
+          ),
+          const SizedBox(height: 10),
+          if (expensiveItems.isEmpty)
+            const _EmptyCard('Product spend ranking appears after scans.')
+          else
+            _ThinScrollableCard(
+              rowCount: expensiveItems.length,
+              children: expensiveItems
+                  .map(
+                    (item) => ListTile(
+                      leading: CategoryAvatar(category: item.category),
+                      title: Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        '${item.category} · bought ${item.quantity.g}',
+                      ),
+                      trailing: Text(
+                        '₹${item.total.toStringAsFixed(0)}',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
           const SizedBox(height: 20),
           const _SectionTitle(
             icon: Icons.trending_up,
@@ -270,10 +528,136 @@ class _InsightsScreenState extends State<InsightsScreen> {
                     ),
                   ),
                 )),
+          const SizedBox(height: 20),
+          const _SectionTitle(
+            icon: Icons.replay_outlined,
+            title: 'Buy again soon',
+          ),
+          const SizedBox(height: 10),
+          if (dueProducts.isEmpty)
+            const _EmptyCard(
+              'Repeated products will appear here when CartSense predicts they may be due again.',
+            )
+          else
+            ...dueProducts.map((item) => Card(
+                  child: ListTile(
+                    leading: CategoryAvatar(category: item.category),
+                    title: Text(item.name),
+                    subtitle: Text(
+                      'Usually every ${item.averageDaysBetweenPurchases} days · best ₹${item.bestPrice.toStringAsFixed(2)} at ${item.bestStore}',
+                    ),
+                    trailing:
+                        const Icon(Icons.add_task_outlined, color: _green),
+                  ),
+                )),
         ],
+      ),
+      bottomNavigationBar: CartSenseFooterNav(
+        selectedIndex: 3,
+        activeShoppingCount: widget.activeShoppingCount,
+        onDestinationSelected: (index) {
+          if (index == 0) {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          } else if (index == 1) {
+            widget.onScan?.call();
+          } else if (index == 2) {
+            widget.onOpenShoppingList?.call();
+          }
+        },
       ),
     );
   }
+}
+
+class _ThinScrollableCard extends StatefulWidget {
+  const _ThinScrollableCard({
+    required this.rowCount,
+    required this.children,
+  });
+
+  final int rowCount;
+  final List<Widget> children;
+
+  @override
+  State<_ThinScrollableCard> createState() => _ThinScrollableCardState();
+}
+
+class _ThinScrollableCardState extends State<_ThinScrollableCard> {
+  late final ScrollController _controller = ScrollController();
+
+  bool get _needsScroll => widget.rowCount > 5;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: SizedBox(
+          height: _needsScroll ? 360 : null,
+          child: Scrollbar(
+            controller: _controller,
+            thumbVisibility: _needsScroll,
+            thickness: 3,
+            radius: const Radius.circular(12),
+            child: ListView.separated(
+              controller: _controller,
+              shrinkWrap: !_needsScroll,
+              physics: _needsScroll
+                  ? const ClampingScrollPhysics()
+                  : const NeverScrollableScrollPhysics(),
+              itemCount: widget.children.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) => widget.children[index],
+            ),
+          ),
+        ),
+      );
+}
+
+class _SmartInsightCard extends StatelessWidget {
+  const _SmartInsightCard({required this.alerts});
+
+  final List<_MonthAlert> alerts;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        color: CartSenseColors.surfaceMuted,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.auto_awesome, color: _green),
+                  SizedBox(width: 8),
+                  Text(
+                    'Smart summary',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ...alerts.map(
+                (alert) => Padding(
+                  padding: const EdgeInsets.only(top: 7),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(alert.icon, color: _green, size: 20),
+                      const SizedBox(width: 9),
+                      Expanded(child: Text(alert.message)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -298,6 +682,46 @@ class _SectionTitle extends StatelessWidget {
       );
 }
 
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        color: color,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: _green),
+              const SizedBox(height: 10),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                label,
+                style: const TextStyle(color: CartSenseColors.textMuted),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
 class _EmptyCard extends StatelessWidget {
   const _EmptyCard(this.message);
 
@@ -311,6 +735,96 @@ class _EmptyCard extends StatelessWidget {
           child: Text(message),
         ),
       );
+}
+
+List<_MonthAlert> _monthAlerts(List<Receipt> receipts, double budget) {
+  final now = DateTime.now();
+  final thisMonth = _monthTotal(receipts, now);
+  final previousMonth =
+      _monthTotal(receipts, DateTime(now.year, now.month - 1));
+  final alerts = <_MonthAlert>[];
+  if (previousMonth > 0) {
+    final difference = thisMonth - previousMonth;
+    final percent = (difference / previousMonth) * 100;
+    alerts.add(_MonthAlert(
+      percent >= 0 ? Icons.trending_up : Icons.trending_down,
+      percent >= 0
+          ? 'This month is ₹${difference.abs().toStringAsFixed(0)} higher than last month (+${percent.toStringAsFixed(0)}%).'
+          : 'This month is ₹${difference.abs().toStringAsFixed(0)} lower than last month (${percent.toStringAsFixed(0)}%).',
+    ));
+  }
+  if (budget > 0) {
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final projected =
+        now.day == 0 ? thisMonth : thisMonth / now.day * daysInMonth;
+    alerts.add(_MonthAlert(
+      projected > budget
+          ? Icons.warning_amber_rounded
+          : Icons.verified_outlined,
+      projected > budget
+          ? 'Projected monthly spend is ₹${projected.toStringAsFixed(0)}, about ₹${(projected - budget).toStringAsFixed(0)} over budget.'
+          : 'Projected monthly spend is ₹${projected.toStringAsFixed(0)}, within your ₹${budget.toStringAsFixed(0)} budget.',
+    ));
+  }
+  return alerts;
+}
+
+double _monthTotal(List<Receipt> receipts, DateTime month) => receipts
+    .where((receipt) =>
+        receipt.purchasedAt.year == month.year &&
+        receipt.purchasedAt.month == month.month)
+    .fold(0.0, (total, receipt) => total + receipt.calculatedTotal);
+
+List<_CategoryAlert> _categoryIncreaseAlerts(List<Receipt> receipts) {
+  final now = DateTime.now();
+  final current = _categoryTotalsForMonth(receipts, now);
+  final previous = _categoryTotalsForMonth(
+    receipts,
+    DateTime(now.year, now.month - 1),
+  );
+  final alerts = <_CategoryAlert>[];
+  for (final entry in current.entries) {
+    final old = previous[entry.key] ?? 0;
+    if (old <= 0 || entry.value <= old) continue;
+    final percent = ((entry.value - old) / old) * 100;
+    if (percent < 20 && entry.value - old < 100) continue;
+    alerts.add(_CategoryAlert(entry.key, old, entry.value, percent));
+  }
+  alerts.sort((a, b) => b.percent.compareTo(a.percent));
+  return alerts;
+}
+
+Map<String, double> _categoryTotalsForMonth(
+  List<Receipt> receipts,
+  DateTime month,
+) {
+  final filtered = receipts.where((receipt) =>
+      receipt.purchasedAt.year == month.year &&
+      receipt.purchasedAt.month == month.month);
+  final totals = <String, double>{};
+  for (final receipt in filtered) {
+    for (final item in receipt.items) {
+      totals[item.category] = (totals[item.category] ?? 0) + item.total;
+    }
+  }
+  return totals;
+}
+
+class _MonthAlert {
+  const _MonthAlert(this.icon, this.message);
+
+  final IconData icon;
+  final String message;
+}
+
+class _CategoryAlert {
+  const _CategoryAlert(
+      this.category, this.previous, this.current, this.percent);
+
+  final String category;
+  final double previous;
+  final double current;
+  final double percent;
 }
 
 String _monthName(int month) => const [
@@ -327,3 +841,77 @@ String _monthName(int month) => const [
       'Nov',
       'Dec',
     ][month - 1];
+
+List<_StoreSpend> _storeTotals(List<Receipt> receipts) {
+  final stores = <String, _StoreSpend>{};
+  for (final receipt in receipts) {
+    final name = receipt.store.trim().isEmpty ? 'Unknown store' : receipt.store;
+    final current = stores[name] ?? _StoreSpend(name, 0, 0);
+    stores[name] = _StoreSpend(
+      name,
+      current.total + receipt.calculatedTotal,
+      current.billCount + 1,
+    );
+  }
+  return stores.values.toList()..sort((a, b) => b.total.compareTo(a.total));
+}
+
+Map<String, double> _categoryTotals(List<Receipt> receipts) {
+  final categories = <String, double>{};
+  for (final receipt in receipts) {
+    for (final item in receipt.items) {
+      final category =
+          item.category.trim().isEmpty ? GroceryCategory.other : item.category;
+      categories.update(
+        category,
+        (value) => value + item.total,
+        ifAbsent: () => item.total,
+      );
+    }
+  }
+  return categories;
+}
+
+List<_ProductSpend> _topExpensiveItems(List<Receipt> receipts) {
+  final items = <String, _ProductSpend>{};
+  for (final receipt in receipts) {
+    for (final item in receipt.items) {
+      final key = normalizedProductName(item.name);
+      if (key.length < 2) continue;
+      final current =
+          items[key] ?? _ProductSpend(item.name, item.category, 0, 0);
+      items[key] = _ProductSpend(
+        item.name,
+        item.category,
+        current.total + item.total,
+        current.quantity + item.quantity,
+      );
+    }
+  }
+  return items.values.toList()..sort((a, b) => b.total.compareTo(a.total));
+}
+
+class _StoreSpend {
+  const _StoreSpend(this.name, this.total, this.billCount);
+
+  final String name;
+  final double total;
+  final int billCount;
+}
+
+class _ProductSpend {
+  const _ProductSpend(this.name, this.category, this.total, this.quantity);
+
+  final String name;
+  final String category;
+  final double total;
+  final double quantity;
+}
+
+extension on double {
+  String get g => this == roundToDouble()
+      ? toStringAsFixed(0)
+      : toStringAsFixed(2)
+          .replaceFirst(RegExp(r'0+$'), '')
+          .replaceFirst(RegExp(r'\.$'), '');
+}

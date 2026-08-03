@@ -81,7 +81,7 @@ class GroceryCategory {
     final name =
         productName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
     if (RegExp(
-            r'\b(sanitary|whisper|wisper|nisper|bindazz|stayfree|stay free|sofy|kotex|carefree|niine|maxi pad|period pad|panty liner|tampon)\b')
+            r'\b(sanitary|whisper|wisper|nisper|bindazz|stayfree|stay free|sofy|kotex|carefree|niine|maxi pad|period pad|panty liner|tampon|pads|napkin|napkins)\b')
         .hasMatch(name)) {
       return sanitaryCare;
     }
@@ -91,17 +91,17 @@ class GroceryCategory {
       return babyCare;
     }
     if (RegExp(
-            r'\b(tetley|tetely|tetly|tea|chai|tata tea|red label|taj mahal|wagh bakri|society tea|three roses|3 roses|brook bond|lipton|coffee|nescafe|bru)\b')
+            r'\b(tetley|tetely|tetly|tea|chai|tata tea|red label|taj mahal|wagh bakri|society tea|three roses|3 roses|brook bond|lipton|coffee|nescafe|bru|continental|sunrise)\b')
         .hasMatch(name)) {
       return teaCoffee;
     }
     if (RegExp(
-            r'\b(gold drop|gold winner|sun drop|sundrop|fortune|freedom|saffola|dhara|gemini|sunflower|groundnut|mustard oil|rice bran|soyabean oil|cooking oil|edible oil|refined oil|olive oil|coconut oil)\b')
+            r'\b(gold drop|gold winner|sun drop|sundrop|fortune|freedom|saffola|dhara|gemini|sunflower|sunfl|groundnut|mustard oil|rice bran|soyabean oil|cooking oil|edible oil|refined oil|olive oil|coconut oil|oil)\b')
         .hasMatch(name)) {
       return cookingOils;
     }
     if (RegExp(
-            r'\b(milk|paneer|curd|yogurt|yoghurt|cheese|butter|ghee|cream|lassi|buttermilk|heritage|amul|nandini|mother dairy)\b')
+            r'\b(milk|paneer|panee|curd|yogurt|yoghurt|cheese|butter|ghee|cream|lassi|buttermilk|heritage|amul|nandini|mother dairy|milkymist|milky mist)\b')
         .hasMatch(name)) {
       return dairy;
     }
@@ -111,7 +111,7 @@ class GroceryCategory {
       return produce;
     }
     if (RegExp(
-            r'\b(bread|bun|rusk|cake|corn flakes|cornflakes|oats|muesli|cereal|idli batter|dosa batter|jam|honey|peanut butter)\b')
+            r'\b(bread|bun|rusk|cake|corn flakes|cornflakes|oats|muesli|cereal|idli batter|dosa batter|jam|honey|peanut butter|bournvita|boost|horlicks|complan)\b')
         .hasMatch(name)) {
       return breakfastBakery;
     }
@@ -121,7 +121,7 @@ class GroceryCategory {
       return frozenReady;
     }
     if (RegExp(
-            r'\b(rice|atta|flour|dal|dhal|pulse|salt|sugar|jaggery|masala|spice|ragi|sooji|suji|poha|besan|maida|rajma|chana|moong|toor|urad)\b')
+            r'\b(rice|atta|flour|dal|dhal|pulse|salt|sugar|jaggery|masala|spice|ragi|sooji|suji|poha|besan|maida|rajma|chana|moong|toor|urad|aashirvaad|india gate|daawat)\b')
         .hasMatch(name)) {
       return pantry;
     }
@@ -131,7 +131,7 @@ class GroceryCategory {
       return beverages;
     }
     if (RegExp(
-            r'\b(biscuit|cookie|chips|chocolate|candy|sweet|namkeen|snack|wafer|mixture|kurkure|lays|hide seek|oreo|bourbon)\b')
+            r'\b(biscuit|biscuits|cookie|cookies|chips|chocolate|candy|sweet|namkeen|snack|wafer|mixture|kurkure|lays|hide seek|oreo|bourbon|parle|marie|good day|glucose|dark fantasy|sunfeast|britannia|haldiram)\b')
         .hasMatch(name)) {
       return snacks;
     }

@@ -76,6 +76,8 @@ export const receiptJsonSchema = {
 export const receiptPrompt = `You are an expert grocery receipt analyst. Read the receipt image itself, including its table geometry. Return only the requested structured data.
 
 Rules:
+- Before extracting, visually focus on the receipt paper only. Ignore surrounding table/floor/background, mentally crop to the bill edges, compensate for tilt/perspective, and follow the printed row/column alignment from top to bottom.
+- If multiple images are supplied, they are ordered sections of the same long receipt from top to bottom. Merge them into one receipt, remove overlapping duplicate rows between adjacent photos, and use the final/bottom section for payable total when visible.
 - Extract product rows only. Never put headers, addresses, survey text, GST summaries, tax rows, payment methods, "amount received from customer", change, savings messages, bill numbers, barcodes, or totals into items.
 - Preserve visible product names. Correct obvious OCR letter mistakes only when the printed word is visually supported; do not invent brands or products.
 - Classify each product into exactly one category: Fruit & vegetables, Dairy & chilled, Cooking oils, Tea & coffee, Pantry staples, Beverages, Snacks & sweets, Breakfast & bakery, Frozen & ready foods, Household, Personal care, Sanitary care, Baby care, or Other. Use Other only when the product cannot reasonably fit another category. Sanitary pads and brands such as Whisper belong to Sanitary care; Tetley and other teas belong to Tea & coffee; edible oils and brands such as Gold Drop belong to Cooking oils.
@@ -91,6 +93,8 @@ export function receiptAuditPrompt(firstPass: ReturnType<typeof normalizeReceipt
   return `Audit a first-pass grocery receipt extraction against the original receipt image. Return a complete corrected replacement using the requested schema.
 
 Audit method:
+- Start by re-locating the receipt paper inside the image, ignoring background and correcting for tilt/perspective when following text rows.
+- If multiple images were supplied, audit them as ordered top/middle/bottom sections of one receipt. Check overlapping rows only once and rely on the bottom/final section for the payable total.
 - Re-read the product table row by row using the printed columns and their horizontal alignment. Do not trust the first pass when pixels disagree.
 - Verify every product name, quantity, unit rate, discount and line value against the same physical row.
 - Verify that each product category fits the product; use Other only when no listed grocery category reasonably applies.

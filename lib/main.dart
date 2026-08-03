@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,18 +6,24 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_receipt.dart';
 import 'models/receipt.dart';
+import 'models/savings_intelligence.dart';
 import 'models/shopping_item.dart';
 import 'models/shopping_trip.dart';
 import 'models/spending_insights.dart';
 import 'screens/insights_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/product_master_screen.dart';
+import 'screens/settings_screen.dart';
 import 'screens/shopping_list_screen.dart';
 import 'screens/shopping_reconciliation_screen.dart';
 import 'services/receipt_export.dart';
 import 'services/ai_receipt_service.dart';
+import 'services/product_memory_store.dart';
 import 'services/receipt_parser.dart';
 import 'services/receipt_store.dart';
 import 'services/shopping_list_store.dart';
 import 'theme/cartsense_theme.dart';
+import 'widgets/app_footer_nav.dart';
 import 'widgets/category_icon.dart';
 
 void main() {
@@ -41,7 +48,47 @@ class CartSenseApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         title: 'CartSense',
         theme: buildCartSenseTheme(),
-        home: const HomeScreen(),
+        home: const OnboardingGate(),
+      );
+}
+
+class OnboardingGate extends StatefulWidget {
+  const OnboardingGate({super.key});
+
+  @override
+  State<OnboardingGate> createState() => _OnboardingGateState();
+}
+
+class _OnboardingGateState extends State<OnboardingGate> {
+  late Future<bool> completed;
+
+  @override
+  void initState() {
+    super.initState();
+    completed = _isComplete();
+  }
+
+  Future<bool> _isComplete() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getBool('cartsense_onboarding_complete') == true;
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<bool>(
+        future: completed,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snapshot.data == true) return const HomeScreen();
+          return OnboardingScreen(
+            onFinished: () => setState(() {
+              completed = Future.value(true);
+            }),
+          );
+        },
       );
 }
 
@@ -61,6 +108,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int activeShoppingCount = 0;
   bool busy = false;
   bool usingAi = false;
+  double scanProgress = 0;
+  String scanStage = 'Preparing receipt...';
+  Timer? scanTimer;
   String query = '';
 
   SpendingInsights get monthlyInsights => SpendingInsights.forMonth(history);
@@ -85,8 +135,70 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    scanTimer?.cancel();
     searchController.dispose();
     super.dispose();
+  }
+
+  void _startScanProgress({required bool aiEnhanced}) {
+    scanTimer?.cancel();
+    final stages = aiEnhanced
+        ? const [
+            'Uploading securely...',
+            'Finding the receipt edges...',
+            'Reading product rows...',
+            'Checking quantities and prices...',
+            'Matching totals...',
+            'Preparing your bill review...',
+          ]
+        : const [
+            'Opening photo on this phone...',
+            'Finding receipt text...',
+            'Reading product rows...',
+            'Checking prices...',
+            'Preparing your bill review...',
+          ];
+    var tick = 0;
+    setState(() {
+      busy = true;
+      usingAi = aiEnhanced;
+      scanProgress = .04;
+      scanStage = stages.first;
+    });
+    scanTimer = Timer.periodic(const Duration(milliseconds: 520), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      tick += 1;
+      final ceiling = aiEnhanced ? .92 : .86;
+      final next =
+          (scanProgress + (aiEnhanced ? .055 : .075)).clamp(0.0, ceiling);
+      final stageIndex = ((next / ceiling) * stages.length)
+          .floor()
+          .clamp(0, stages.length - 1);
+      setState(() {
+        scanProgress = next;
+        scanStage = stages[stageIndex];
+      });
+      if (tick > 36) {
+        setState(() {
+          scanStage = aiEnhanced
+              ? 'Still reading carefully...'
+              : 'Still reading on this device...';
+        });
+      }
+    });
+  }
+
+  void _finishScanProgress() {
+    scanTimer?.cancel();
+    scanTimer = null;
+    if (!mounted) return;
+    setState(() {
+      scanProgress = 1;
+      scanStage = 'Receipt scanned';
+    });
   }
 
   Future<void> _refresh() async {
@@ -147,18 +259,19 @@ class _HomeScreenState extends State<HomeScreen> {
     if (aiEnhanced && !await _confirmAiConsent()) return;
     final image = await picker.pickImage(
       source: source,
-      imageQuality: aiEnhanced ? 88 : 92,
-      maxWidth: aiEnhanced ? 2200 : 2400,
+      imageQuality: aiEnhanced ? 78 : 92,
+      maxWidth: aiEnhanced ? 1800 : 2400,
+      maxHeight: aiEnhanced ? 3600 : null,
     );
     if (image == null || !mounted) return;
-    setState(() {
-      busy = true;
-      usingAi = aiEnhanced;
-    });
+    if (aiEnhanced && !await _reviewReceiptPhoto(image.path)) return;
+    _startScanProgress(aiEnhanced: aiEnhanced);
     try {
       final file = File(image.path);
       final receipt =
           aiEnhanced ? await aiService.parse(file) : await parser.parse(file);
+      await ProductMemoryStore().applyToReceipt(receipt);
+      _finishScanProgress();
       if (mounted) await _open(receipt);
     } catch (error) {
       if (mounted) {
@@ -175,9 +288,72 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } finally {
       if (mounted) {
+        scanTimer?.cancel();
         setState(() {
           busy = false;
           usingAi = false;
+          scanProgress = 0;
+          scanStage = 'Preparing receipt...';
+        });
+      }
+    }
+  }
+
+  Future<bool> _reviewReceiptPhoto(String imagePath) async {
+    if (!mounted) return false;
+    return await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => ReceiptCaptureReviewScreen(imagePath: imagePath),
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _captureLongReceipt() async {
+    if (!aiService.isConfigured) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+            'AI Enhanced Scan is not configured in this build. Private scanning is available.',
+          ),
+        ));
+      }
+      return;
+    }
+    if (!await _confirmAiConsent()) return;
+    if (!mounted) return;
+    final paths = await Navigator.of(context).push<List<String>>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const LongReceiptCaptureScreen(),
+      ),
+    );
+    if (paths == null || paths.isEmpty || !mounted) return;
+    _startScanProgress(aiEnhanced: true);
+    try {
+      final receipt =
+          await aiService.parseImages(paths.map((path) => File(path)).toList());
+      await ProductMemoryStore().applyToReceipt(receipt);
+      _finishScanProgress();
+      if (mounted) await _open(receipt);
+    } catch (error) {
+      if (mounted) {
+        final message = error is AiReceiptException
+            ? error.message
+            : 'The long bill could not be read. Retake clearer sections with overlap.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        scanTimer?.cancel();
+        setState(() {
+          busy = false;
+          usingAi = false;
+          scanProgress = 0;
+          scanStage = 'Preparing receipt...';
         });
       }
     }
@@ -240,6 +416,12 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: () => Navigator.pop(context, 'ai_gallery'),
             ),
             ListTile(
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('AI scan long bill'),
+              subtitle: const Text('Capture top, middle and bottom sections.'),
+              onTap: () => Navigator.pop(context, 'ai_long'),
+            ),
+            ListTile(
               leading: const Icon(Icons.lock_outline),
               title: const Text('Private on-device scan'),
               onTap: () => Navigator.pop(context, 'private'),
@@ -253,6 +435,8 @@ class _HomeScreenState extends State<HomeScreen> {
       await _capture(ImageSource.camera, aiEnhanced: true);
     } else if (selection == 'ai_gallery') {
       await _capture(ImageSource.gallery, aiEnhanced: true);
+    } else if (selection == 'ai_long') {
+      await _captureLongReceipt();
     } else {
       await _showPrivateScanOptions();
     }
@@ -260,20 +444,60 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _open(Receipt receipt) async {
     await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ReceiptScreen(receipt: receipt),
+      builder: (_) => ReceiptScreen(
+        receipt: receipt,
+        history: history,
+        activeShoppingCount: activeShoppingCount,
+        onScan: _showCheckoutScanOptions,
+        onOpenShoppingList: _openShoppingAssistant,
+        onOpenInsights: _openInsights,
+      ),
     ));
     await _refresh();
   }
 
   Future<void> _openInsights() async {
+    await _refresh();
+    if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => InsightsScreen(receipts: history),
+      builder: (_) => InsightsScreen(
+        receipts: history,
+        activeShoppingCount: activeShoppingCount,
+        onScan: _showCheckoutScanOptions,
+        onOpenShoppingList: _openShoppingAssistant,
+      ),
     ));
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const SettingsScreen(),
+    ));
+    await _refresh();
+  }
+
+  Future<void> _openProductMaster() async {
+    await _refresh();
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ProductMasterScreen(
+        receipts: history,
+        activeShoppingCount: activeShoppingCount,
+        onScan: _showCheckoutScanOptions,
+        onOpenShoppingList: _openShoppingAssistant,
+        onOpenInsights: _openInsights,
+      ),
+    ));
+    await _refresh();
   }
 
   Future<void> _openShoppingAssistant() async {
     final scanNow = await Navigator.of(context).push<bool>(MaterialPageRoute(
-      builder: (_) => ShoppingListScreen(receipts: history),
+      builder: (_) => ShoppingListScreen(
+        receipts: history,
+        activeShoppingCount: activeShoppingCount,
+        onOpenInsights: _openInsights,
+      ),
     ));
     await _refresh();
     if (scanNow == true && mounted) await _showCheckoutScanOptions();
@@ -311,9 +535,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   _showPrivateScanOptions();
                 } else if (value == 'demo') {
                   _open(createDemoReceipt());
+                } else if (value == 'settings') {
+                  _openSettings();
                 }
               },
               itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'settings',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.settings_outlined),
+                    title: Text('Settings'),
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'private',
                   child: ListTile(
@@ -335,34 +569,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         body: busy
-            ? Center(
-                child: Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 20),
-                      Text(
-                        usingAi
-                            ? 'AI is carefully reading your bill...'
-                            : 'Reading your bill privately on this device...',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        usingAi
-                            ? 'Checking product rows, taxes, item count and the printed total.'
-                            : 'This can take a few seconds. No receipt data is uploaded.',
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
+            ? ReceiptScanProgressView(
+                progress: scanProgress,
+                stage: scanStage,
+                aiEnhanced: usingAi,
               )
             : SafeArea(
                 child: ListView(
@@ -462,7 +672,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         Expanded(
                           child: _HomeFeatureButton(
                             icon: Icons.shopping_cart_outlined,
-                            title: 'Shopping list',
+                            title: 'Shopping Assistant',
                             subtitle: activeShoppingCount == 0
                                 ? 'Plan your next trip'
                                 : '$activeShoppingCount products to buy',
@@ -470,6 +680,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 10),
+                    _HomeFeatureButton(
+                      icon: Icons.inventory_2_outlined,
+                      title: 'Product master',
+                      subtitle: 'Usual items, favorites and best prices',
+                      onTap: _openProductMaster,
                     ),
                     if (monthlyInsights.billCount > 0) ...[
                       const SizedBox(height: 18),
@@ -545,7 +762,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 10),
                     ],
                     if (history.isEmpty)
-                      const _HomeEmptyState()
+                      _HomeEmptyState(
+                        onScan: _showCheckoutScanOptions,
+                        onPlan: _openShoppingAssistant,
+                        onDemo: () => _open(createDemoReceipt()),
+                      )
                     else if (filteredHistory.isEmpty)
                       const Card(
                         child: Padding(
@@ -610,8 +831,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-        bottomNavigationBar: NavigationBar(
+        bottomNavigationBar: CartSenseFooterNav(
           selectedIndex: 0,
+          activeShoppingCount: activeShoppingCount,
           onDestinationSelected: (index) {
             if (index == 1) {
               _showCheckoutScanOptions();
@@ -621,34 +843,614 @@ class _HomeScreenState extends State<HomeScreen> {
               _openInsights();
             }
           },
-          destinations: [
-            const NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home),
-              label: 'Home',
+        ),
+      );
+}
+
+class LongReceiptCaptureScreen extends StatefulWidget {
+  const LongReceiptCaptureScreen({super.key});
+
+  @override
+  State<LongReceiptCaptureScreen> createState() =>
+      _LongReceiptCaptureScreenState();
+}
+
+class _LongReceiptCaptureScreenState extends State<LongReceiptCaptureScreen> {
+  final picker = ImagePicker();
+  final parts = <String>[];
+  bool picking = false;
+
+  Future<void> _addPart(ImageSource source) async {
+    if (picking || parts.length >= 4) return;
+    setState(() => picking = true);
+    try {
+      final image = await picker.pickImage(
+        source: source,
+        imageQuality: 78,
+        maxWidth: 1800,
+        maxHeight: 2600,
+      );
+      if (image != null && mounted) {
+        setState(() => parts.add(image.path));
+      }
+    } finally {
+      if (mounted) setState(() => picking = false);
+    }
+  }
+
+  void _removePart(int index) {
+    setState(() => parts.removeAt(index));
+  }
+
+  void _movePart(int index, int direction) {
+    final target = index + direction;
+    if (target < 0 || target >= parts.length) return;
+    setState(() {
+      final item = parts.removeAt(index);
+      parts.insert(target, item);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: CartSenseColors.surface,
+        appBar: AppBar(
+          title: const Text('Long bill scan'),
+          actions: [
+            TextButton(
+              onPressed: parts.isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(List<String>.from(parts)),
+              child: const Text('Scan'),
             ),
-            const NavigationDestination(
-              icon: Icon(Icons.document_scanner_outlined),
-              selectedIcon: Icon(Icons.document_scanner),
-              label: 'Scan',
-            ),
-            NavigationDestination(
-              icon: Badge(
-                isLabelVisible: activeShoppingCount > 0,
-                label: Text('$activeShoppingCount'),
-                child: const Icon(Icons.shopping_basket_outlined),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              color: CartSenseColors.primaryDark,
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.receipt_long_outlined,
+                          color: CartSenseColors.accent,
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Capture in order: top → middle → bottom',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Each photo should overlap the previous section by a few rows. Make sure the final photo includes the printed total.',
+                      style: TextStyle(color: Colors.white70, height: 1.35),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: picking || parts.length >= 4
+                                ? null
+                                : () => _addPart(ImageSource.camera),
+                            icon: const Icon(Icons.camera_alt_outlined),
+                            label: Text(parts.isEmpty
+                                ? 'Add top photo'
+                                : 'Add next photo'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        IconButton.filledTonal(
+                          tooltip: 'Choose from gallery',
+                          onPressed: picking || parts.length >= 4
+                              ? null
+                              : () => _addPart(ImageSource.gallery),
+                          icon: const Icon(Icons.photo_library_outlined),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              selectedIcon: const Icon(Icons.shopping_basket),
-              label: 'List',
             ),
-            const NavigationDestination(
-              icon: Icon(Icons.insights_outlined),
-              selectedIcon: Icon(Icons.insights),
-              label: 'Insights',
+            const SizedBox(height: 12),
+            if (parts.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(18),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.add_a_photo_outlined,
+                        size: 38,
+                        color: green,
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'No sections added yet',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Start with the top of the receipt and continue downward.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: CartSenseColors.textMuted),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ...List.generate(parts.length, (index) {
+                final label = index == 0
+                    ? 'Top section'
+                    : index == parts.length - 1
+                        ? 'Bottom / total section'
+                        : 'Middle section';
+                return Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Image.file(
+                            File(parts[index]),
+                            width: 74,
+                            height: 96,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Photo ${index + 1}: $label',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                index == parts.length - 1
+                                    ? 'Must include the final payable total.'
+                                    : 'Overlap a few rows with the next photo.',
+                                style: const TextStyle(
+                                  color: CartSenseColors.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          children: [
+                            IconButton(
+                              tooltip: 'Move up',
+                              onPressed: index == 0
+                                  ? null
+                                  : () => _movePart(index, -1),
+                              icon: const Icon(Icons.keyboard_arrow_up),
+                            ),
+                            IconButton(
+                              tooltip: 'Move down',
+                              onPressed: index == parts.length - 1
+                                  ? null
+                                  : () => _movePart(index, 1),
+                              icon: const Icon(Icons.keyboard_arrow_down),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          tooltip: 'Remove',
+                          onPressed: () => _removePart(index),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: parts.isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(List<String>.from(parts)),
+              icon: const Icon(Icons.auto_awesome),
+              label: Text(parts.length == 1
+                  ? 'Scan 1 section'
+                  : 'Scan ${parts.length} sections together'),
             ),
           ],
         ),
       );
+}
+
+class ReceiptCaptureReviewScreen extends StatelessWidget {
+  const ReceiptCaptureReviewScreen({super.key, required this.imagePath});
+
+  final String imagePath;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: CartSenseColors.primaryDark,
+        appBar: AppBar(
+          title: const Text('Check receipt photo'),
+          backgroundColor: CartSenseColors.primaryDark,
+          foregroundColor: Colors.white,
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(26),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        InteractiveViewer(
+                          minScale: .8,
+                          maxScale: 4,
+                          child: Image.file(
+                            File(imagePath),
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const Center(
+                              child: Text(
+                                'Could not open this receipt photo.',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ),
+                        IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: CartSenseColors.accent,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(26),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                decoration: const BoxDecoration(
+                  color: CartSenseColors.surface,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Ready for AI cleanup',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'For best accuracy, make sure the full receipt is visible, not clipped, and the printed rows are readable. Pinch to check before scanning.',
+                      style: TextStyle(
+                        color: CartSenseColors.textMuted,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        Chip(
+                          avatar: Icon(Icons.crop_free, size: 18),
+                          label: Text('Full bill visible'),
+                        ),
+                        Chip(
+                          avatar: Icon(Icons.straighten, size: 18),
+                          label: Text('Rows readable'),
+                        ),
+                        Chip(
+                          avatar: Icon(Icons.auto_awesome, size: 18),
+                          label: Text('AI will clean up'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () => Navigator.pop(context, true),
+                      icon: const Icon(Icons.document_scanner_outlined),
+                      label: const Text('Use photo and scan'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => Navigator.pop(context, false),
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: const Text('Retake or choose another'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class ReceiptScanProgressView extends StatefulWidget {
+  const ReceiptScanProgressView({
+    super.key,
+    required this.progress,
+    required this.stage,
+    required this.aiEnhanced,
+  });
+
+  final double progress;
+  final String stage;
+  final bool aiEnhanced;
+
+  @override
+  State<ReceiptScanProgressView> createState() =>
+      _ReceiptScanProgressViewState();
+}
+
+class _ReceiptScanProgressViewState extends State<ReceiptScanProgressView>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = (widget.progress.clamp(0.0, 1.0) * 100).round();
+    return SafeArea(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(24, 22, 24, 28),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF3F6F9D), CartSenseColors.primaryDark],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'CartSense',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -.5,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              widget.aiEnhanced
+                  ? 'AI is scanning your receipt'
+                  : 'Private reader is scanning',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 34,
+                height: 1.05,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.aiEnhanced
+                  ? 'Finding grocery items, prices, discounts and totals.'
+                  : 'Reading receipt text on this phone only.',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                height: 1.35,
+              ),
+            ),
+            const Spacer(),
+            Center(
+              child: AnimatedBuilder(
+                animation: controller,
+                builder: (context, child) {
+                  final beamTop = 34 + controller.value * 250;
+                  return Transform.rotate(
+                    angle: -.22,
+                    child: Container(
+                      width: 230,
+                      height: 330,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(28),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black45,
+                            blurRadius: 28,
+                            offset: Offset(0, 18),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: Stack(
+                          children: [
+                            Container(
+                              color: const Color(0xFFEFE8D8),
+                              padding: const EdgeInsets.all(18),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 92,
+                                    height: 12,
+                                    color: Colors.black87,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    width: 132,
+                                    height: 8,
+                                    color: Colors.black54,
+                                  ),
+                                  const SizedBox(height: 18),
+                                  ...List.generate(
+                                    10,
+                                    (index) => Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 10),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            flex: index.isEven ? 6 : 4,
+                                            child: Container(
+                                              height: 7,
+                                              color: Colors.black54,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Container(
+                                            width: 42,
+                                            height: 7,
+                                            color: Colors.black54,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Container(
+                                    width: double.infinity,
+                                    height: 2,
+                                    color: Colors.black45,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Container(
+                                      width: 84,
+                                      height: 13,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Positioned(
+                              top: beamTop,
+                              left: -30,
+                              right: -30,
+                              child: Container(
+                                height: 72,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.red.withValues(alpha: 0),
+                                      Colors.red.withValues(alpha: .28),
+                                      Colors.red.withValues(alpha: 0),
+                                    ],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                  ),
+                                ),
+                                child: Align(
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    height: 7,
+                                    color: const Color(0xFFFF2E2E),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const Spacer(),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: LinearProgressIndicator(
+                      value: widget.progress.clamp(0.0, 1.0),
+                      minHeight: 10,
+                      backgroundColor: Colors.white.withValues(alpha: .22),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                          CartSenseColors.accent),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Text(
+                  '$percent%',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  widget.aiEnhanced ? Icons.auto_awesome : Icons.lock_outline,
+                  color: CartSenseColors.accent,
+                  size: 19,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.stage,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _BrandMark extends StatelessWidget {
@@ -714,7 +1516,15 @@ class _HomeSectionTitle extends StatelessWidget {
 }
 
 class _HomeEmptyState extends StatelessWidget {
-  const _HomeEmptyState();
+  const _HomeEmptyState({
+    required this.onScan,
+    required this.onPlan,
+    required this.onDemo,
+  });
+
+  final VoidCallback onScan;
+  final VoidCallback onPlan;
+  final VoidCallback onDemo;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -742,6 +1552,32 @@ class _HomeEmptyState extends StatelessWidget {
                 'Scan your first grocery receipt to start tracking prices and spending.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: CartSenseColors.textMuted),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onScan,
+                icon: const Icon(Icons.document_scanner_outlined),
+                label: const Text('Scan first receipt'),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onPlan,
+                      icon: const Icon(Icons.shopping_basket_outlined),
+                      label: const Text('Plan list'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onDemo,
+                      icon: const Icon(Icons.science_outlined),
+                      label: const Text('Try demo'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -809,8 +1645,21 @@ String _shortDate(DateTime date) =>
     '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
 
 class ReceiptScreen extends StatefulWidget {
-  const ReceiptScreen({super.key, required this.receipt});
+  const ReceiptScreen({
+    super.key,
+    required this.receipt,
+    this.history = const [],
+    this.activeShoppingCount = 0,
+    this.onScan,
+    this.onOpenShoppingList,
+    this.onOpenInsights,
+  });
   final Receipt receipt;
+  final List<Receipt> history;
+  final int activeShoppingCount;
+  final VoidCallback? onScan;
+  final VoidCallback? onOpenShoppingList;
+  final VoidCallback? onOpenInsights;
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
 }
@@ -824,12 +1673,15 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     return path != null && path.isNotEmpty && File(path).existsSync();
   }
 
-  Future<void> _showOriginalReceipt() async {
+  Future<void> _showOriginalReceipt({String? focusItem}) async {
     final path = receipt.imagePath;
     if (path == null || !File(path).existsSync()) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ReceiptImageScreen(imagePath: path),
+        builder: (_) => ReceiptImageScreen(
+          imagePath: path,
+          focusItem: focusItem,
+        ),
       ),
     );
   }
@@ -865,7 +1717,37 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     if (index >= 0) await _editItem(index);
   }
 
+  Future<void> _approveItem(int index) async {
+    final item = receipt.items[index];
+    item.confidence = 1;
+    await ProductMemoryStore().rememberItem(
+      scannedName: item.name,
+      corrected: item,
+    );
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${item.name} approved. CartSense learned it.'),
+    ));
+  }
+
+  Future<void> _markAllReviewed() async {
+    for (final item in receipt.items) {
+      item.confidence = 1;
+      await ProductMemoryStore().rememberItem(
+        scannedName: item.name,
+        corrected: item,
+      );
+    }
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Review completed. CartSense learned these products.'),
+    ));
+  }
+
   Future<void> _addToShoppingList(ReceiptItem item) async {
+    final priceInsight = _priceInsightFor(item);
     final unitPrice = item.unitPrice > 0
         ? item.unitPrice
         : item.quantity > 0
@@ -877,8 +1759,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       quantity: 1,
       category: item.category,
       expectedUnitPrice: unitPrice,
-      bestUnitPrice: unitPrice,
-      bestStore: receipt.store,
+      bestUnitPrice: priceInsight?.bestPrice ?? unitPrice,
+      bestStore: priceInsight?.bestStore ?? receipt.store,
       latestStore: receipt.store,
       sourceReceiptId: receipt.id,
       createdAt: DateTime.now(),
@@ -887,6 +1769,29 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${item.name} added to your shopping list.')),
     );
+  }
+
+  List<ProductPriceInsight> get _currentPriceInsights {
+    final combined = [
+      ...widget.history.where((item) => item.id != receipt.id),
+      receipt,
+    ];
+    final receiptKeys = receipt.items
+        .map((item) => normalizedProductName(item.name))
+        .where((key) => key.length > 1)
+        .toSet();
+    return SavingsIntelligence.fromReceipts(combined)
+        .priceInsights
+        .where((item) => receiptKeys.contains(normalizedProductName(item.name)))
+        .toList();
+  }
+
+  ProductPriceInsight? _priceInsightFor(ReceiptItem item) {
+    final key = normalizedProductName(item.name);
+    for (final insight in _currentPriceInsights) {
+      if (normalizedProductName(insight.name) == key) return insight;
+    }
+    return null;
   }
 
   Future<void> _saveAndReconcile() async {
@@ -919,6 +1824,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           builder: (_) => ShoppingReconciliationScreen(
             receipt: receipt,
             plannedItems: plannedItems,
+            activeShoppingCount: widget.activeShoppingCount,
+            onOpenShoppingList: widget.onOpenShoppingList,
+            onOpenInsights: widget.onOpenInsights,
           ),
         ),
       );
@@ -1014,6 +1922,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
   Future<void> _editItem(int index) async {
     final item = receipt.items[index];
+    final scannedName = item.name;
     final name = TextEditingController(text: item.name);
     final quantity = TextEditingController(text: item.quantity.toString());
     final price =
@@ -1083,6 +1992,21 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         item.parsedLineTotal = null;
         item.confidence = 1;
       });
+      await ProductMemoryStore().rememberItem(
+        scannedName: scannedName,
+        corrected: item,
+      );
+      final changed = await ProductMemoryStore().applyToReceipt(receipt);
+      if (mounted) {
+        if (changed) setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            changed
+                ? 'Saved. Similar products were updated from memory.'
+                : 'Saved. CartSense will remember ${item.name}.',
+          ),
+        ));
+      }
     }
     name.dispose();
     quantity.dispose();
@@ -1180,8 +2104,18 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               ]),
             ),
             const SizedBox(height: 14),
+            _receiptStatsCard(),
+            const SizedBox(height: 8),
             if (receipt.shoppingTrip case final trip?) ...[
               _tripSummary(trip),
+              const SizedBox(height: 8),
+            ],
+            if (_hasReceiptImage) ...[
+              _receiptPhotoCompareCard(),
+              const SizedBox(height: 8),
+            ],
+            if (_currentPriceInsights.isNotEmpty) ...[
+              _priceIntelligenceCard(),
               const SizedBox(height: 8),
             ],
             if (receipt.reviewItemCount > 0) ...[
@@ -1203,11 +2137,17 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                         onPressed: _reviewNextItem,
                         child: const Text('Review next'),
                       ),
+                      TextButton(
+                        onPressed: _markAllReviewed,
+                        child: const Text('Looks good'),
+                      ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 6),
+              _reviewQueue(),
+              const SizedBox(height: 10),
             ],
             OutlinedButton.icon(
               onPressed: _editDetails,
@@ -1270,45 +2210,47 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             ],
             const SizedBox(height: 18),
             _HomeSectionTitle(
-              'Products',
+              'Products by category',
               trailing: '${receipt.items.length}',
             ),
             const SizedBox(height: 7),
-            ...List.generate(receipt.items.length, (index) {
-              final item = receipt.items[index];
-              return Card(
-                color:
-                    item.needsReview ? CartSenseColors.warning : Colors.white,
-                child: ListTile(
-                  onTap: () => _editItem(index),
-                  leading: CategoryAvatar(category: item.category),
-                  title: Text(item.name,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
-                  subtitle: Text(
-                      '${item.quantity.g} × ₹${item.unitPrice.toStringAsFixed(2)}  •  Discount ₹${item.discount.toStringAsFixed(2)}\n${item.category}${item.needsReview ? '  •  REVIEW' : ''}'),
-                  isThreeLine: true,
-                  trailing: SizedBox(
-                    width: 104,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '₹${item.total.toStringAsFixed(2)}',
-                            overflow: TextOverflow.ellipsis,
+            ..._productCategoryGroups(),
+            if (receipt.items.isEmpty)
+              ...List.generate(receipt.items.length, (index) {
+                final item = receipt.items[index];
+                return Card(
+                  color:
+                      item.needsReview ? CartSenseColors.warning : Colors.white,
+                  child: ListTile(
+                    onTap: () => _editItem(index),
+                    leading: CategoryAvatar(category: item.category),
+                    title: Text(item.name,
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                        '${item.quantity.g} × ₹${item.unitPrice.toStringAsFixed(2)}  •  Discount ₹${item.discount.toStringAsFixed(2)}\n${item.category}${item.needsReview ? '  •  REVIEW' : ''}'),
+                    isThreeLine: true,
+                    trailing: SizedBox(
+                      width: 104,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '₹${item.total.toStringAsFixed(2)}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Add to shopping list',
-                          onPressed: () => _addToShoppingList(item),
-                          icon: const Icon(Icons.add_shopping_cart_outlined),
-                        ),
-                      ],
+                          IconButton(
+                            tooltip: 'Add to shopping list',
+                            onPressed: () => _addToShoppingList(item),
+                            icon: const Icon(Icons.add_shopping_cart_outlined),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              );
-            }),
+                );
+              }),
             TextButton.icon(
               onPressed: () => setState(() => receipt.items.add(ReceiptItem(
                   name: 'New item',
@@ -1319,15 +2261,19 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               icon: const Icon(Icons.add),
               label: const Text('Add missing item'),
             ),
-            const Divider(height: 28),
-            _total('Product subtotal', receipt.itemSubtotal),
-            if (receipt.taxTotal > 0) _total('Tax', receipt.taxTotal),
-            if (receipt.otherCharges > 0)
-              _total('Other charges', receipt.otherCharges),
-            if (receipt.billDiscount > 0)
-              _total('Bill discount', -receipt.billDiscount),
-            _total('Printed bill total', receipt.printedTotal),
-            _total('Calculated total', receipt.calculatedTotal, strong: true),
+            const SizedBox(height: 10),
+            _totalsCard(),
+            if (receipt.items.isEmpty && receipt.items.isNotEmpty) ...[
+              const Divider(height: 28),
+              _total('Product subtotal', receipt.itemSubtotal),
+              if (receipt.taxTotal > 0) _total('Tax', receipt.taxTotal),
+              if (receipt.otherCharges > 0)
+                _total('Other charges', receipt.otherCharges),
+              if (receipt.billDiscount > 0)
+                _total('Bill discount', -receipt.billDiscount),
+              _total('Printed bill total', receipt.printedTotal),
+              _total('Calculated total', receipt.calculatedTotal, strong: true),
+            ],
             const SizedBox(height: 18),
             FilledButton.icon(
               onPressed: saving ? null : _saveAndReconcile,
@@ -1346,6 +2292,362 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                       : 'Save bill changes'),
             ),
           ],
+        ),
+        bottomNavigationBar: CartSenseFooterNav(
+          selectedIndex: 1,
+          activeShoppingCount: widget.activeShoppingCount,
+          onDestinationSelected: (index) {
+            if (index == 0) {
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            } else if (index == 1) {
+              widget.onScan?.call();
+            } else if (index == 2) {
+              widget.onOpenShoppingList?.call();
+            } else if (index == 3) {
+              widget.onOpenInsights?.call();
+            }
+          },
+        ),
+      );
+
+  Widget _receiptStatsCard() => Card(
+        color: CartSenseColors.surface,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(
+                child: _receiptMetric(
+                  Icons.shopping_basket_outlined,
+                  'Products',
+                  '${receipt.items.length}',
+                ),
+              ),
+              Expanded(
+                child: _receiptMetric(
+                  Icons.rule_folder_outlined,
+                  'Review',
+                  receipt.reviewItemCount == 0
+                      ? 'Clear'
+                      : '${receipt.reviewItemCount}',
+                ),
+              ),
+              Expanded(
+                child: _receiptMetric(
+                  Icons.payments_outlined,
+                  'Total',
+                  '₹${receipt.printedTotal.toStringAsFixed(0)}',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _receiptMetric(IconData icon, String label, String value) => Column(
+        children: [
+          Icon(icon, color: green),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+          ),
+          Text(
+            label,
+            style: const TextStyle(
+              color: CartSenseColors.textMuted,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      );
+
+  List<Widget> _productCategoryGroups() {
+    final indexesByCategory = <String, List<int>>{};
+    for (var index = 0; index < receipt.items.length; index += 1) {
+      final item = receipt.items[index];
+      indexesByCategory.putIfAbsent(item.category, () => []).add(index);
+    }
+    final entries = indexesByCategory.entries.toList()
+      ..sort((a, b) {
+        final totalA = a.value.fold(
+          0.0,
+          (sum, index) => sum + receipt.items[index].total,
+        );
+        final totalB = b.value.fold(
+          0.0,
+          (sum, index) => sum + receipt.items[index].total,
+        );
+        return totalB.compareTo(totalA);
+      });
+    return entries.map((entry) {
+      final total = entry.value.fold(
+        0.0,
+        (sum, index) => sum + receipt.items[index].total,
+      );
+      final reviewCount =
+          entry.value.where((index) => receipt.items[index].needsReview).length;
+      return Card(
+        color: reviewCount > 0 ? CartSenseColors.warning : Colors.white,
+        child: ExpansionTile(
+          initiallyExpanded: reviewCount > 0 || entries.length <= 3,
+          leading: CategoryAvatar(category: entry.key),
+          title: Text(
+            entry.key,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: Text(
+            '${entry.value.length} products${reviewCount > 0 ? ' • $reviewCount review' : ''}',
+          ),
+          trailing: Text(
+            '₹${total.toStringAsFixed(0)}',
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          children: entry.value.map((index) {
+            final item = receipt.items[index];
+            return ListTile(
+              onTap: () => _editItem(index),
+              title: Text(
+                item.name,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: Text(
+                '${item.quantity.g} × ₹${item.unitPrice.toStringAsFixed(2)} • Discount ₹${item.discount.toStringAsFixed(2)}${item.needsReview ? ' • REVIEW' : ''}',
+              ),
+              trailing: SizedBox(
+                width: 104,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        '₹${item.total.toStringAsFixed(2)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Add to shopping list',
+                      onPressed: () => _addToShoppingList(item),
+                      icon: const Icon(Icons.add_shopping_cart_outlined),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      );
+    }).toList();
+  }
+
+  Widget _totalsCard() => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.receipt_long_outlined, color: green),
+                  SizedBox(width: 8),
+                  Text(
+                    'Bill totals',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _total('Product subtotal', receipt.itemSubtotal),
+              if (receipt.taxTotal > 0) _total('Tax', receipt.taxTotal),
+              if (receipt.otherCharges > 0)
+                _total('Other charges', receipt.otherCharges),
+              if (receipt.billDiscount > 0)
+                _total('Bill discount', -receipt.billDiscount),
+              const Divider(),
+              _total('Printed bill total', receipt.printedTotal),
+              _total('Calculated total', receipt.calculatedTotal, strong: true),
+            ],
+          ),
+        ),
+      );
+
+  Widget _reviewQueue() {
+    final reviewIndexes = <int>[];
+    for (var i = 0; i < receipt.items.length; i += 1) {
+      if (receipt.items[i].needsReview) reviewIndexes.add(i);
+    }
+    if (reviewIndexes.isEmpty) return const SizedBox.shrink();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.manage_search_outlined, color: green),
+                SizedBox(width: 8),
+                Text(
+                  'Review queue',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Check these first. Approving teaches CartSense for future scans.',
+              style: TextStyle(color: CartSenseColors.textMuted),
+            ),
+            const SizedBox(height: 10),
+            ...reviewIndexes.map((index) {
+              final item = receipt.items[index];
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: CartSenseColors.warning,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: CartSenseColors.outline),
+                ),
+                child: Row(
+                  children: [
+                    CategoryAvatar(category: item.category),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            '${item.category} · ₹${item.total.toStringAsFixed(2)} · ${(item.confidence * 100).round()}% confidence',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: CartSenseColors.textMuted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _approveItem(index),
+                      child: const Text('Approve'),
+                    ),
+                    if (_hasReceiptImage)
+                      IconButton(
+                        tooltip: 'Compare with photo',
+                        onPressed: () =>
+                            _showOriginalReceipt(focusItem: item.name),
+                        icon: const Icon(Icons.image_search_outlined),
+                      ),
+                    IconButton(
+                      tooltip: 'Edit',
+                      onPressed: () => _editItem(index),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _priceIntelligenceCard() {
+    final insights = _currentPriceInsights
+        .where((item) =>
+            item.purchaseCount > 1 &&
+            (item.priceChangePercent.abs() >= 5 || item.possibleSaving >= 1))
+        .take(5)
+        .toList();
+    if (insights.isEmpty) {
+      return Card(
+        color: CartSenseColors.surfaceMuted,
+        child: const ListTile(
+          leading: Icon(Icons.price_check_outlined, color: green),
+          title: Text(
+            'Price intelligence is learning',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: Text(
+            'Scan this product again later to compare prices and spot savings.',
+          ),
+        ),
+      );
+    }
+    return Card(
+      color: CartSenseColors.surfaceMuted,
+      child: ExpansionTile(
+        initiallyExpanded: true,
+        leading: const Icon(Icons.price_change_outlined, color: green),
+        title: const Text(
+          'Price intelligence',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        subtitle: Text('${insights.length} useful price notes found'),
+        children: insights.map((item) {
+          final wentUp = item.priceChangePercent >= 5;
+          final cheaperElsewhere =
+              item.bestStore != item.latestStore && item.possibleSaving >= 1;
+          return ListTile(
+            dense: true,
+            leading: Icon(
+              wentUp ? Icons.trending_up : Icons.savings_outlined,
+              color: wentUp ? Colors.deepOrange : green,
+            ),
+            title: Text(
+              item.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: Text(
+              wentUp
+                  ? 'Was ₹${item.previousPrice!.toStringAsFixed(2)}, now ₹${item.latestPrice.toStringAsFixed(2)}.'
+                  : 'Best seen at ${item.bestStore} for ₹${item.bestPrice.toStringAsFixed(2)}.',
+            ),
+            trailing: Text(
+              wentUp
+                  ? '+${item.priceChangePercent.toStringAsFixed(0)}%'
+                  : cheaperElsewhere
+                      ? 'Save ₹${item.possibleSaving.toStringAsFixed(0)}'
+                      : '',
+              style: TextStyle(
+                color: wentUp ? Colors.deepOrange : green,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _receiptPhotoCompareCard() => Card(
+        color: CartSenseColors.surfaceMuted,
+        child: ListTile(
+          leading: const Icon(Icons.document_scanner_outlined, color: green),
+          title: const Text(
+            'Compare with original photo',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: const Text(
+            'Open the receipt image while checking product names, prices and totals.',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _showOriginalReceipt,
         ),
       );
 
@@ -1400,38 +2702,77 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 }
 
 class ReceiptImageScreen extends StatelessWidget {
-  const ReceiptImageScreen({super.key, required this.imagePath});
+  const ReceiptImageScreen({
+    super.key,
+    required this.imagePath,
+    this.focusItem,
+  });
 
   final String imagePath;
+  final String? focusItem;
 
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.black,
         appBar: AppBar(
-          title: const Text('Original receipt'),
+          title: Text(focusItem == null ? 'Original receipt' : 'Check product'),
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
         ),
         body: SafeArea(
-          child: Center(
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 5,
-              boundaryMargin: const EdgeInsets.all(80),
-              child: Image.file(
-                File(imagePath),
-                semanticLabel: 'Original grocery receipt',
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'The original receipt image is no longer available.',
-                    style: TextStyle(color: Colors.white),
-                    textAlign: TextAlign.center,
+          child: Stack(
+            children: [
+              Center(
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 5,
+                  boundaryMargin: const EdgeInsets.all(80),
+                  child: Image.file(
+                    File(imagePath),
+                    semanticLabel: 'Original grocery receipt',
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'The original receipt image is no longer available.',
+                        style: TextStyle(color: Colors.white),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: 14,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.zoom_in, color: Colors.white),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            focusItem == null
+                                ? 'Pinch to zoom and drag the photo to compare it with captured details.'
+                                : 'Find "$focusItem" on the original receipt. Pinch to zoom, then go back to approve or edit.',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );

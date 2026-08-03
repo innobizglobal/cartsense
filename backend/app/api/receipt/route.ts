@@ -66,10 +66,15 @@ class ModelRequestError extends Error {
 
 async function analyzeReceipt(
   bindings: RuntimeEnv,
-  imageUrl: string,
+  imageUrls: string[],
   prompt: string,
   safetyIdentifier: string,
 ) {
+  const imageContent = imageUrls.map((imageUrl, index) => ({
+    type: "input_image",
+    image_url: imageUrl,
+    detail: "original",
+  } satisfies const));
   const upstream = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -86,7 +91,7 @@ async function analyzeReceipt(
         role: "user",
         content: [
           { type: "input_text", text: prompt },
-          { type: "input_image", image_url: imageUrl, detail: "original" },
+          ...imageContent,
         ],
       }],
       text: {
@@ -114,8 +119,8 @@ export async function POST(request: Request) {
   }
 
   const declaredLength = Number.parseInt(request.headers.get("content-length") ?? "0", 10);
-  if (declaredLength > maximumImageBytes + 1024 * 256) {
-    return errorResponse("The receipt photo is too large. Choose a photo below 12 MB.", 413, "IMAGE_TOO_LARGE");
+  if (declaredLength > maximumImageBytes * 2 + 1024 * 512) {
+    return errorResponse("The receipt photos are too large. Use fewer sections or retake closer photos.", 413, "IMAGE_TOO_LARGE");
   }
 
   let form: FormData;
@@ -124,16 +129,30 @@ export async function POST(request: Request) {
   } catch {
     return errorResponse("Send the receipt as a multipart image upload.", 400, "INVALID_UPLOAD");
   }
-  const image = form.get("receipt");
-  if (!(image instanceof File)) {
+  const images = form
+    .getAll("receipt")
+    .filter((value): value is File => value instanceof File);
+  if (images.length === 0) {
     return errorResponse("No receipt photo was supplied.", 400, "IMAGE_REQUIRED");
   }
-  const effectiveImageType = await imageType(image);
-  if (effectiveImageType == null) {
-    return errorResponse("Use a JPEG, PNG or WebP receipt photo.", 415, "IMAGE_TYPE_UNSUPPORTED");
+  if (images.length > 4) {
+    return errorResponse("Use up to 4 ordered photos for one long receipt.", 400, "TOO_MANY_IMAGES");
   }
-  if (image.size <= 0 || image.size > maximumImageBytes) {
-    return errorResponse("The receipt photo must be between 1 byte and 12 MB.", 413, "IMAGE_TOO_LARGE");
+  const effectiveImageTypes: string[] = [];
+  let totalImageBytes = 0;
+  for (const image of images) {
+    const effectiveImageType = await imageType(image);
+    if (effectiveImageType == null) {
+      return errorResponse("Use JPEG, PNG or WebP receipt photos.", 415, "IMAGE_TYPE_UNSUPPORTED");
+    }
+    if (image.size <= 0 || image.size > maximumImageBytes) {
+      return errorResponse("Each receipt photo must be between 1 byte and 12 MB.", 413, "IMAGE_TOO_LARGE");
+    }
+    totalImageBytes += image.size;
+    effectiveImageTypes.push(effectiveImageType);
+  }
+  if (totalImageBytes > maximumImageBytes * 2) {
+    return errorResponse("The long receipt photos are too large together. Retake them closer to the bill or use fewer sections.", 413, "IMAGE_TOO_LARGE");
   }
 
   let allowance: { allowed: boolean; remaining: number; identifier: string };
@@ -146,13 +165,15 @@ export async function POST(request: Request) {
     return errorResponse("Today's AI scan limit has been reached. Private on-device scanning is still available.", 429, "DAILY_LIMIT_REACHED");
   }
 
-  const base64 = Buffer.from(await image.arrayBuffer()).toString("base64");
-  const imageUrl = `data:${effectiveImageType};base64,${base64}`;
+  const imageUrls = await Promise.all(images.map(async (image, index) => {
+    const base64 = Buffer.from(await image.arrayBuffer()).toString("base64");
+    return `data:${effectiveImageTypes[index]};base64,${base64}`;
+  }));
   let receipt: Awaited<ReturnType<typeof analyzeReceipt>>;
   try {
     receipt = await analyzeReceipt(
       bindings,
-      imageUrl,
+      imageUrls,
       receiptPrompt,
       allowance.identifier,
     );
@@ -160,7 +181,7 @@ export async function POST(request: Request) {
       try {
         receipt = await analyzeReceipt(
           bindings,
-          imageUrl,
+          imageUrls,
           receiptAuditPrompt(receipt),
           allowance.identifier,
         );

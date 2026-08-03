@@ -4,9 +4,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('home presents a focused commercial navigation hierarchy',
+  testWidgets('first launch shows the CartSense onboarding guide',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(const CartSenseApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scan grocery bills'), findsOneWidget);
+    expect(find.text('Continue'), findsOneWidget);
+
+    await tester.tap(find.text('Skip'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scan a grocery receipt'), findsOneWidget);
+  });
+
+  testWidgets('home presents a focused commercial navigation hierarchy',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'cartsense_onboarding_complete': true,
+    });
 
     await tester.pumpWidget(const CartSenseApp());
     await tester.pumpAndSettle();
@@ -31,5 +49,59 @@ void main() {
     );
     expect(find.text('Recent receipts'), findsOneWidget);
     expect(find.text('No receipts yet'), findsOneWidget);
+    expect(find.text('Scan first receipt'), findsOneWidget);
+    expect(find.text('Plan list'), findsOneWidget);
+    expect(find.text('Try demo'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('More options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('CartSense data'), findsOneWidget);
+    expect(find.text('Backup and restore'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Product memory'),
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Product memory'), findsOneWidget);
+  });
+
+  testWidgets('footer navigation stays available on main workflow screens',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'cartsense_onboarding_complete': true,
+    });
+
+    await tester.pumpWidget(const CartSenseApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('List').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Shopping list'), findsWidgets);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Scan'), findsOneWidget);
+    expect(find.text('List'), findsOneWidget);
+    expect(find.text('Insights'), findsWidgets);
+
+    await tester.tap(find.text('Insights').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Insights'), findsWidgets);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Scan'), findsOneWidget);
+    expect(find.text('List'), findsOneWidget);
+    expect(find.text('Saved bills'), findsOneWidget);
+    expect(find.text('Export grocery report'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Store comparison'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Store comparison'), findsOneWidget);
   });
 }
