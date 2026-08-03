@@ -870,6 +870,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       bottomNavigationBar: CartSenseFooterNav(
         selectedIndex: 2,
         activeShoppingCount: activeItems.length,
+        languageCode: languageCode,
         onDestinationSelected: (index) {
           if (index == 0) {
             Navigator.pop(context, false);
@@ -1210,10 +1211,10 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                   controller: name,
                   autofocus: widget.existing == null,
                   onChanged: _nameChanged,
-                  decoration: const InputDecoration(
-                    labelText: 'Product or product type',
-                    hintText: 'For example Tea',
-                    prefixIcon: Icon(Icons.search),
+                  decoration: InputDecoration(
+                    labelText: t('productOrType'),
+                    hintText: t('forExampleTea'),
+                    prefixIcon: const Icon(Icons.search),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -1240,7 +1241,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                     child: ListTile(
                       dense: true,
                       leading: const Icon(Icons.sell_outlined, color: _green),
-                      title: const Text('Shelf price captured'),
+                      title: Text(t('shelfPriceCaptured')),
                       subtitle: Text([
                         if (shelfSalePrice != null)
                           'Sale ₹${shelfSalePrice!.toStringAsFixed(2)}',
@@ -1304,8 +1305,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                         controller: quantity,
                         keyboardType: const TextInputType.numberWithOptions(
                             decimal: true),
-                        decoration:
-                            const InputDecoration(labelText: 'Quantity'),
+                        decoration: InputDecoration(labelText: t('quantity')),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1314,8 +1314,8 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                         controller: price,
                         keyboardType: const TextInputType.numberWithOptions(
                             decimal: true),
-                        decoration: const InputDecoration(
-                          labelText: 'Unit price',
+                        decoration: InputDecoration(
+                          labelText: t('unitPrice'),
                           prefixText: '₹ ',
                         ),
                       ),
@@ -1325,7 +1325,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                 DropdownButtonFormField<String>(
                   key: ValueKey(category),
                   initialValue: category,
-                  decoration: const InputDecoration(labelText: 'Category'),
+                  decoration: InputDecoration(labelText: t('category')),
                   items: GroceryCategory.values
                       .map((value) => DropdownMenuItem(
                             value: value,
@@ -1338,9 +1338,9 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                 ),
                 TextField(
                   controller: note,
-                  decoration: const InputDecoration(
-                    labelText: 'Note (optional)',
-                    hintText: 'Brand, size or preference',
+                  decoration: InputDecoration(
+                    labelText: t('noteOptional'),
+                    hintText: t('brandSizePreference'),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1348,7 +1348,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.notifications_outlined),
                   title: Text(remindAt == null
-                      ? 'Add reminder'
+                      ? t('addReminder')
                       : _reminderText(remindAt!)),
                   subtitle: remindAt == null
                       ? const Text('Optional Android notification at 9:00 AM')
@@ -1369,12 +1369,12 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(t('cancel')),
           ),
           FilledButton(
             onPressed: _save,
-            child:
-                Text(widget.existing == null ? 'Add to list' : 'Save changes'),
+            child: Text(
+                widget.existing == null ? t('addToList') : t('saveChanges')),
           ),
         ],
       );
@@ -1532,7 +1532,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Exit'),
+              child: Text(t('exit')),
             ),
           ],
         ),
@@ -1612,8 +1612,8 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                     const SizedBox(height: 6),
                     Text(
                       unknownPriceCount > 0
-                          ? '$unknownPriceCount item prices are unknown. Scan shelf labels or type prices for a better counter estimate.'
-                          : 'Expected bill includes checked planned items plus extras picked during this trip.',
+                          ? '$unknownPriceCount ${t('unknownPrices')}'
+                          : t('expectedBillIncludes'),
                     ),
                     const SizedBox(height: 10),
                     Wrap(
@@ -1636,9 +1636,9 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                     ),
                     if (_removalSuggestions().isNotEmpty) ...[
                       const SizedBox(height: 10),
-                      const Text(
-                        'To reduce the bill, consider removing:',
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                      Text(
+                        t('removeToReduce'),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       ..._removalSuggestions().map((item) => ListTile(
                             dense: true,
@@ -1648,11 +1648,11 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                             subtitle: Text(
                               item.estimatedTotal > 0
                                   ? 'Saves about ₹${item.estimatedTotal.toStringAsFixed(2)}'
-                                  : 'Price unknown',
+                                  : t('priceUnknown'),
                             ),
                             trailing: TextButton(
                               onPressed: () => _removeSuggestion(item),
-                              child: const Text('Remove'),
+                              child: Text(t('remove')),
                             ),
                           )),
                     ],

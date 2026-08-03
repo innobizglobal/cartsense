@@ -72,10 +72,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ListTile(
-              leading: Icon(Icons.translate_outlined),
-              title: Text('Choose app language'),
-              subtitle: Text('Starter support for the main shopping workflow.'),
+            ListTile(
+              leading: const Icon(Icons.translate_outlined),
+              title: Text(t('chooseLanguage')),
+              subtitle: Text(t('languageSubtitle')),
             ),
             ...AppLanguage.values.map(
               (option) => ListTile(
@@ -101,9 +101,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() => language = selected);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Language changed to ${selected.nativeName}.'),
+      content: Text('${t('languageChanged')}: ${selected.nativeName}.'),
     ));
   }
+
+  String t(String key) => appText(language.code, key);
 
   Future<void> _toggleAiConsent(bool value) async {
     final preferences = await SharedPreferences.getInstance();
@@ -234,18 +236,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Settings')),
+        appBar: AppBar(title: Text(t('settings'))),
         body: loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
                 children: [
                   _settingsSection(
-                    'Language',
+                    t('language'),
                     [
                       ListTile(
                         leading: const Icon(Icons.translate_outlined),
-                        title: const Text('App language'),
+                        title: Text(t('appLanguage')),
                         subtitle: Text(
                           '${language.nativeName} · English, Hindi, Telugu',
                         ),
@@ -256,14 +258,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 14),
                   _settingsSection(
-                    'Backup and restore',
+                    t('backupRestore'),
                     [
                       ListTile(
                         leading: const Icon(Icons.ios_share_outlined),
-                        title: const Text('Export backup file'),
-                        subtitle: const Text(
-                          'Save or share a CartSense backup JSON file.',
-                        ),
+                        title: Text(t('exportBackup')),
+                        subtitle: Text(t('exportBackupSubtitle')),
                         onTap: _shareBackup,
                       ),
                     ],
@@ -309,26 +309,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 14),
                   _settingsSection(
-                    'Privacy',
+                    t('privacy'),
                     [
                       SwitchListTile(
                         value: aiConsent,
                         onChanged: _toggleAiConsent,
                         secondary: const Icon(Icons.auto_awesome),
-                        title: const Text('Allow AI Enhanced Scan'),
-                        subtitle: const Text(
-                          'When enabled, receipt photos can be sent securely for AI recognition. Private scan remains available.',
-                        ),
+                        title: Text(t('allowAiScan')),
+                        subtitle: Text(t('allowAiScanSubtitle')),
                       ),
                     ],
                   ),
                   const SizedBox(height: 14),
                   _settingsSection(
-                    'Language',
+                    t('language'),
                     [
                       ListTile(
                         leading: const Icon(Icons.translate_outlined),
-                        title: const Text('App language'),
+                        title: Text(t('appLanguage')),
                         subtitle: Text(
                           '${language.nativeName} · Shopping Assistant, Add Product and Trip Mode',
                         ),
@@ -339,37 +337,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 14),
                   _settingsSection(
-                    'Backup and restore',
+                    t('backupRestore'),
                     [
                       ListTile(
                         leading: const Icon(Icons.ios_share_outlined),
-                        title: const Text('Export backup file'),
-                        subtitle: const Text(
-                          'Save or share a CartSense backup JSON file.',
-                        ),
+                        title: Text(t('exportBackup')),
+                        subtitle: Text(t('exportBackupSubtitle')),
                         onTap: _shareBackup,
                       ),
                       ListTile(
                         leading: const Icon(Icons.copy_outlined),
-                        title: const Text('Copy backup text'),
-                        subtitle: const Text(
-                          'Useful if a share target is not available.',
-                        ),
+                        title: Text(t('copyBackup')),
+                        subtitle: Text(t('copyBackupSubtitle')),
                         onTap: _copyBackupText,
                       ),
                       ListTile(
                         leading: const Icon(Icons.restore_page_outlined),
-                        title: const Text('Restore from backup text'),
-                        subtitle: const Text(
-                          'Paste a previous CartSense backup.',
-                        ),
+                        title: Text(t('restoreBackup')),
+                        subtitle: Text(t('restoreBackupSubtitle')),
                         onTap: _restoreFromText,
                       ),
                     ],
                   ),
                   const SizedBox(height: 14),
                   _settingsSection(
-                    'Product memory',
+                    t('productMemory'),
                     [
                       ListTile(
                         leading: const Icon(Icons.psychology_outlined),
@@ -381,7 +373,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ListTile(
                         leading:
                             const Icon(Icons.delete_outline, color: Colors.red),
-                        title: const Text('Clear product memory'),
+                        title: Text(t('clearProductMemory')),
                         subtitle: const Text(
                           'Does not delete receipts or shopping list.',
                         ),
@@ -391,11 +383,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 14),
                   _settingsSection(
-                    'About',
+                    t('about'),
                     [
                       ListTile(
                         leading: const Icon(Icons.school_outlined),
-                        title: const Text('Show app guide'),
+                        title: Text(t('showAppGuide')),
                         subtitle: const Text(
                           'Replay the CartSense welcome walkthrough.',
                         ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/language_store.dart';
 
 class CartSenseFooterNav extends StatelessWidget {
   const CartSenseFooterNav({
@@ -6,26 +7,30 @@ class CartSenseFooterNav extends StatelessWidget {
     required this.selectedIndex,
     required this.onDestinationSelected,
     this.activeShoppingCount = 0,
+    this.languageCode = 'en',
   });
 
   final int selectedIndex;
   final int activeShoppingCount;
   final ValueChanged<int> onDestinationSelected;
+  final String languageCode;
+
+  String t(String key) => appText(languageCode, key);
 
   @override
   Widget build(BuildContext context) => NavigationBar(
         selectedIndex: selectedIndex,
         onDestinationSelected: onDestinationSelected,
         destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+          NavigationDestination(
+            icon: const Icon(Icons.home_outlined),
+            selectedIcon: const Icon(Icons.home),
+            label: t('home'),
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.document_scanner_outlined),
-            selectedIcon: Icon(Icons.document_scanner),
-            label: 'Scan',
+          NavigationDestination(
+            icon: const Icon(Icons.document_scanner_outlined),
+            selectedIcon: const Icon(Icons.document_scanner),
+            label: t('scan'),
           ),
           NavigationDestination(
             icon: Badge(
@@ -34,12 +39,12 @@ class CartSenseFooterNav extends StatelessWidget {
               child: const Icon(Icons.shopping_basket_outlined),
             ),
             selectedIcon: const Icon(Icons.shopping_basket),
-            label: 'List',
+            label: t('list'),
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights),
-            label: 'Insights',
+          NavigationDestination(
+            icon: const Icon(Icons.insights_outlined),
+            selectedIcon: const Icon(Icons.insights),
+            label: t('insights'),
           ),
         ],
       );

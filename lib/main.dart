@@ -221,6 +221,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() => language = saved);
   }
 
+  String t(String key) => appText(language.code, key);
+
   Future<void> _chooseLanguage() async {
     final selected = await showModalBottomSheet<AppLanguage>(
       context: context,
@@ -256,7 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() => language = selected);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Language changed to ${selected.nativeName}.'),
+      content: Text('${t('languageChanged')}: ${selected.nativeName}.'),
     ));
   }
 
@@ -413,19 +415,19 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ListTile(
-              title: Text('Private on-device reader',
-                  style: TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: Text('The receipt photo stays on this phone.'),
+            ListTile(
+              title: Text(t('privateReader'),
+                  style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text(t('photoStaysPhone')),
             ),
             ListTile(
               leading: const Icon(Icons.document_scanner_outlined),
-              title: const Text('Take a photo'),
+              title: Text(t('takePhoto')),
               onTap: () => Navigator.pop(context, ImageSource.camera),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose from gallery'),
+              title: Text(t('chooseGallery')),
               onTap: () => Navigator.pop(context, ImageSource.gallery),
             ),
           ],
@@ -443,35 +445,34 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ListTile(
+            ListTile(
               title: Text(
-                'Scan your checkout bill',
-                style: TextStyle(fontWeight: FontWeight.w900),
+                t('scanCheckoutBill'),
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
               subtitle: Text(
-                'CartSense will compare this bill with your saved shopping list.',
+                t('compareWithList'),
               ),
             ),
             ListTile(
               leading: const Icon(Icons.auto_awesome),
-              title: const Text('AI scan with camera'),
+              title: Text(t('aiScanCamera')),
               onTap: () => Navigator.pop(context, 'ai_camera'),
             ),
             ListTile(
               leading: const Icon(Icons.add_photo_alternate_outlined),
-              title: const Text('AI scan from gallery'),
+              title: Text(t('aiScanGallery')),
               onTap: () => Navigator.pop(context, 'ai_gallery'),
             ),
             ListTile(
               leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('AI scan long / multiple-page bill'),
-              subtitle:
-                  const Text('Capture 2 to 4 top, middle and bottom photos.'),
+              title: Text(t('aiScanLong')),
+              subtitle: Text(t('captureMultipleSections')),
               onTap: () => Navigator.pop(context, 'ai_long'),
             ),
             ListTile(
               leading: const Icon(Icons.lock_outline),
-              title: const Text('Private on-device scan'),
+              title: Text(t('privateDeviceScan')),
               onTap: () => Navigator.pop(context, 'private'),
             ),
           ],
@@ -556,17 +557,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
           toolbarHeight: 72,
-          title: const Row(
+          title: Row(
             children: [
-              _BrandMark(),
-              SizedBox(width: 11),
+              const _BrandMark(),
+              const SizedBox(width: 11),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('CartSense'),
+                  const Text('CartSense'),
                   Text(
-                    'Smart grocery companion',
-                    style: TextStyle(
+                    t('smartGroceryCompanion'),
+                    style: const TextStyle(
                       color: CartSenseColors.textMuted,
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -578,12 +579,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           actions: [
             IconButton(
-              tooltip: 'Language',
+              tooltip: t('language'),
               onPressed: _chooseLanguage,
               icon: const Icon(Icons.translate_outlined),
             ),
             PopupMenuButton<String>(
-              tooltip: 'More options',
+              tooltip: t('moreOptions'),
               onSelected: (value) {
                 if (value == 'private') {
                   _showPrivateScanOptions();
@@ -593,29 +594,29 @@ class _HomeScreenState extends State<HomeScreen> {
                   _openSettings();
                 }
               },
-              itemBuilder: (context) => const [
+              itemBuilder: (context) => [
                 PopupMenuItem(
                   value: 'settings',
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.settings_outlined),
-                    title: Text('Settings'),
+                    leading: const Icon(Icons.settings_outlined),
+                    title: Text(t('settings')),
                   ),
                 ),
                 PopupMenuItem(
                   value: 'private',
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.lock_outline),
-                    title: Text('Private scan'),
+                    leading: const Icon(Icons.lock_outline),
+                    title: Text(t('privateScan')),
                   ),
                 ),
                 PopupMenuItem(
                   value: 'demo',
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.science_outlined),
-                    title: Text('Open sample receipt'),
+                    leading: const Icon(Icons.science_outlined),
+                    title: Text(t('openSampleReceipt')),
                   ),
                 ),
               ],
@@ -645,27 +646,27 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Row(
+                          Row(
                             children: [
-                              _HeroIcon(),
-                              SizedBox(width: 14),
+                              const _HeroIcon(),
+                              const SizedBox(width: 14),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Scan a grocery receipt',
-                                      style: TextStyle(
+                                      t('scanGroceryReceipt'),
+                                      style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 22,
                                         height: 1.1,
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),
-                                    SizedBox(height: 6),
+                                    const SizedBox(height: 6),
                                     Text(
-                                      'Save products, prices and spending automatically.',
-                                      style: TextStyle(
+                                      t('saveProductsPrices'),
+                                      style: const TextStyle(
                                         color: Colors.white70,
                                         height: 1.35,
                                       ),
@@ -685,9 +686,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                   padding: const EdgeInsets.all(16)),
                               onPressed: _showCheckoutScanOptions,
                               icon: const Icon(Icons.document_scanner),
-                              label: const Text('Scan receipt',
-                                  style:
-                                      TextStyle(fontWeight: FontWeight.w800)),
+                              label: Text(t('scanReceipt'),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800)),
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -701,22 +702,23 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               onPressed: _captureLongReceipt,
                               icon: const Icon(Icons.receipt_long_outlined),
-                              label: const Text(
-                                'Long receipt / multiple photos',
-                                style: TextStyle(fontWeight: FontWeight.w800),
+                              label: Text(
+                                t('longReceiptPhotos'),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800),
                               ),
                             ),
                           ),
                           const SizedBox(height: 12),
-                          const Row(
+                          Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.shield_outlined,
+                              const Icon(Icons.shield_outlined,
                                   size: 16, color: Colors.white70),
-                              SizedBox(width: 6),
+                              const SizedBox(width: 6),
                               Text(
-                                'You choose AI or private on-device scan',
-                                style: TextStyle(
+                                t('chooseAiOrPrivate'),
+                                style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 12,
                                 ),
@@ -727,15 +729,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 22),
-                    const _HomeSectionTitle('Your shortcuts'),
+                    _HomeSectionTitle(t('yourShortcuts')),
                     const SizedBox(height: 9),
                     Row(
                       children: [
                         Expanded(
                           child: _HomeFeatureButton(
                             icon: Icons.savings_outlined,
-                            title: 'Insights',
-                            subtitle: 'Budget and price trends',
+                            title: t('insights'),
+                            subtitle: t('budgetPriceTrends'),
                             onTap: _openInsights,
                           ),
                         ),
@@ -743,10 +745,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         Expanded(
                           child: _HomeFeatureButton(
                             icon: Icons.shopping_cart_outlined,
-                            title: 'Shopping Assistant',
+                            title: t('shoppingAssistant'),
                             subtitle: activeShoppingCount == 0
-                                ? 'Plan your next trip'
-                                : '$activeShoppingCount products to buy',
+                                ? t('planNextTrip')
+                                : '$activeShoppingCount ${t('productsToBuyCount')}',
                             onTap: _openShoppingAssistant,
                           ),
                         ),
@@ -755,8 +757,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 10),
                     _HomeFeatureButton(
                       icon: Icons.inventory_2_outlined,
-                      title: 'Product master',
-                      subtitle: 'Usual items, favorites and best prices',
+                      title: t('productMaster'),
+                      subtitle: t('usualItemsBestPrices'),
                       onTap: _openProductMaster,
                     ),
                     if (monthlyInsights.billCount > 0) ...[
@@ -806,7 +808,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                     const SizedBox(height: 26),
                     _HomeSectionTitle(
-                      'Recent receipts',
+                      t('recentReceipts'),
                       trailing:
                           history.isEmpty ? null : '${history.length} saved',
                     ),
@@ -816,12 +818,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller: searchController,
                         onChanged: (value) => setState(() => query = value),
                         decoration: InputDecoration(
-                          hintText: 'Search stores or grocery items',
+                          hintText: t('searchStoresItems'),
                           prefixIcon: const Icon(Icons.search),
                           suffixIcon: query.isEmpty
                               ? null
                               : IconButton(
-                                  tooltip: 'Clear search',
+                                  tooltip: t('clearSearch'),
                                   onPressed: () {
                                     searchController.clear();
                                     setState(() => query = '');
@@ -839,10 +841,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         onDemo: () => _open(createDemoReceipt()),
                       )
                     else if (filteredHistory.isEmpty)
-                      const Card(
+                      Card(
                         child: Padding(
-                          padding: EdgeInsets.all(20),
-                          child: Text('No saved bills match your search.'),
+                          padding: const EdgeInsets.all(20),
+                          child: Text(t('noSavedBillsMatch')),
                         ),
                       )
                     else
@@ -905,6 +907,7 @@ class _HomeScreenState extends State<HomeScreen> {
         bottomNavigationBar: CartSenseFooterNav(
           selectedIndex: 0,
           activeShoppingCount: activeShoppingCount,
+          languageCode: language.code,
           onDestinationSelected: (index) {
             if (index == 1) {
               _showCheckoutScanOptions();
