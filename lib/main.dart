@@ -18,6 +18,7 @@ import 'screens/shopping_list_screen.dart';
 import 'screens/shopping_reconciliation_screen.dart';
 import 'services/receipt_export.dart';
 import 'services/ai_receipt_service.dart';
+import 'services/language_store.dart';
 import 'services/product_memory_store.dart';
 import 'services/receipt_parser.dart';
 import 'services/receipt_store.dart';
@@ -112,6 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String scanStage = 'Preparing receipt...';
   Timer? scanTimer;
   String query = '';
+  AppLanguage language = AppLanguage.english;
 
   SpendingInsights get monthlyInsights => SpendingInsights.forMonth(history);
 
@@ -131,6 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _refresh();
+    _loadLanguage();
   }
 
   @override
@@ -211,6 +214,50 @@ class _HomeScreenState extends State<HomeScreen> {
             shoppingItems.where((item) => !item.checked).length;
       });
     }
+  }
+
+  Future<void> _loadLanguage() async {
+    final saved = await LanguageStore().load();
+    if (mounted) setState(() => language = saved);
+  }
+
+  Future<void> _chooseLanguage() async {
+    final selected = await showModalBottomSheet<AppLanguage>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              leading: Icon(Icons.translate_outlined),
+              title: Text('Choose language / भाषा / భాష'),
+              subtitle: Text('English, Hindi and Telugu starter support.'),
+            ),
+            ...AppLanguage.values.map(
+              (option) => ListTile(
+                leading: Icon(
+                  option.code == language.code
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  color: option.code == language.code ? green : null,
+                ),
+                title: Text(option.nativeName),
+                subtitle: Text(option.name),
+                onTap: () => Navigator.pop(context, option),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    await LanguageStore().save(selected);
+    if (!mounted) return;
+    setState(() => language = selected);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Language changed to ${selected.nativeName}.'),
+    ));
   }
 
   Future<bool> _confirmAiConsent() async {
@@ -417,8 +464,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('AI scan long bill'),
-              subtitle: const Text('Capture top, middle and bottom sections.'),
+              title: const Text('AI scan long / multiple-page bill'),
+              subtitle:
+                  const Text('Capture 2 to 4 top, middle and bottom photos.'),
               onTap: () => Navigator.pop(context, 'ai_long'),
             ),
             ListTile(
@@ -474,6 +522,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (_) => const SettingsScreen(),
     ));
     await _refresh();
+    await _loadLanguage();
   }
 
   Future<void> _openProductMaster() async {
@@ -528,6 +577,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           actions: [
+            IconButton(
+              tooltip: 'Language',
+              onPressed: _chooseLanguage,
+              icon: const Icon(Icons.translate_outlined),
+            ),
             PopupMenuButton<String>(
               tooltip: 'More options',
               onSelected: (value) {
@@ -634,6 +688,23 @@ class _HomeScreenState extends State<HomeScreen> {
                               label: const Text('Scan receipt',
                                   style:
                                       TextStyle(fontWeight: FontWeight.w800)),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: const BorderSide(color: Colors.white54),
+                                padding: const EdgeInsets.all(15),
+                              ),
+                              onPressed: _captureLongReceipt,
+                              icon: const Icon(Icons.receipt_long_outlined),
+                              label: const Text(
+                                'Long receipt / multiple photos',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 12),

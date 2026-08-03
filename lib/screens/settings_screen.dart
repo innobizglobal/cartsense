@@ -240,6 +240,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
                 children: [
+                  _settingsSection(
+                    'Language',
+                    [
+                      ListTile(
+                        leading: const Icon(Icons.translate_outlined),
+                        title: const Text('App language'),
+                        subtitle: Text(
+                          '${language.nativeName} · English, Hindi, Telugu',
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: _chooseLanguage,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _settingsSection(
+                    'Backup and restore',
+                    [
+                      ListTile(
+                        leading: const Icon(Icons.ios_share_outlined),
+                        title: const Text('Export backup file'),
+                        subtitle: const Text(
+                          'Save or share a CartSense backup JSON file.',
+                        ),
+                        onTap: _shareBackup,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
                   Card(
                     color: CartSenseColors.primary,
                     child: Padding(
