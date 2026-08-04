@@ -81,8 +81,7 @@ void main() {
     expect(saved.single.quantity, 2);
   });
 
-  test('reconciliation completes matches and keeps missing products active',
-      () async {
+  test('reconciliation clears the finished shopping trip list', () async {
     SharedPreferences.setMockInitialValues({});
     final store = ShoppingListStore();
     final tea = ShoppingItem(
@@ -133,14 +132,7 @@ void main() {
     );
 
     final saved = await store.load();
-    final savedTea = saved.singleWhere((item) => item.id == 'tea');
-    final savedMilk = saved.singleWhere((item) => item.id == 'milk');
-    expect(savedTea.checked, isTrue);
-    expect(savedTea.reconciledReceiptId, 'bill-3');
-    expect(savedTea.purchasedName, 'Tetley Classic');
-    expect(savedTea.actualUnitPrice, 172);
-    expect(savedMilk.checked, isFalse);
-    expect(savedMilk.reconciledReceiptId, isNull);
+    expect(saved, isEmpty);
   });
 
   test('adding a previously completed product starts a fresh quantity',

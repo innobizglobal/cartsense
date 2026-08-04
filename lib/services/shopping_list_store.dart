@@ -3,6 +3,7 @@ import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../models/shopping_item.dart';
 import 'product_memory_store.dart';
+import 'shopping_reminder_service.dart';
 
 class ShoppingListStore {
   static const _key = 'cartsense_shopping_list_v1';
@@ -86,6 +87,20 @@ class ShoppingListStore {
   }
 
   Future<void> applyReconciliation({
+    required Receipt receipt,
+    required List<String> plannedItemIds,
+    required Map<String, int> assignments,
+  }) async {
+    final items = await load();
+    final plannedIds = plannedItemIds.toSet();
+    for (final item in items.where((item) => plannedIds.contains(item.id))) {
+      await ShoppingReminderService.instance.cancel(item);
+    }
+    items.removeWhere((item) => plannedIds.contains(item.id));
+    await saveAll(items);
+  }
+
+  Future<void> applyReconciliationLegacy({
     required Receipt receipt,
     required List<String> plannedItemIds,
     required Map<String, int> assignments,

@@ -340,7 +340,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   child: ListTile(
                     leading: CategoryAvatar(category: alert.category),
                     title: Text(
-                      alert.category,
+                      categoryText(language.code, alert.category),
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                     subtitle: Text(
@@ -419,7 +419,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   .map(
                     (entry) => ListTile(
                       leading: CategoryAvatar(category: entry.key),
-                      title: Text(entry.key),
+                      title: Text(categoryText(language.code, entry.key)),
                       trailing: Text(
                         '₹${entry.value.toStringAsFixed(2)}',
                         style: const TextStyle(fontWeight: FontWeight.w800),
@@ -476,7 +476,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       subtitle: Text(
-                        '${item.category} · bought ${item.quantity.g}',
+                        '${categoryText(language.code, item.category)} · bought ${item.quantity.g}',
                       ),
                       trailing: Text(
                         '₹${item.total.toStringAsFixed(0)}',

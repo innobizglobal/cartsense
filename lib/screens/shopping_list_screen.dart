@@ -9,6 +9,7 @@ import '../models/savings_intelligence.dart';
 import '../models/shopping_item.dart';
 import '../services/budget_store.dart';
 import '../services/ai_receipt_service.dart';
+import '../services/family_profile_store.dart';
 import '../services/language_store.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
@@ -46,6 +47,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   List<CatalogProduct> searchResults = [];
   bool loading = true;
   double monthlyBudget = 0;
+  FamilyProfile familyProfile = FamilyProfile.empty;
   String languageCode = 'en';
 
   late final ProductCatalog catalog =
@@ -69,6 +71,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     super.initState();
     _load();
     _loadBudget();
+    _loadFamilyProfile();
     _loadLanguage();
   }
 
@@ -91,6 +94,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   Future<void> _loadBudget() async {
     final budget = await budgetStore.load();
     if (mounted) setState(() => monthlyBudget = budget);
+  }
+
+  Future<void> _loadFamilyProfile() async {
+    final profile = await FamilyProfileStore().load();
+    if (mounted) setState(() => familyProfile = profile);
   }
 
   Future<void> _loadLanguage() async {
@@ -160,7 +168,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       final message = !reminderAllowed
           ? '${edited.name} was saved. Enable notifications in Android settings for its reminder.'
           : existing == null
-              ? '${edited.name} added as ${edited.category}.'
+              ? '${edited.name} added as ${categoryText(languageCode, edited.category)}.'
               : '${edited.name} updated.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
@@ -204,6 +212,68 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     ));
   }
 
+  Future<void> _addMonthlyEssentials(List<ShoppingItem> suggestions) async {
+    for (final item in suggestions) {
+      await store.add(item);
+    }
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${suggestions.length} monthly essentials added.'),
+    ));
+  }
+
+  List<ShoppingItem> _monthlyEssentials() {
+    final now = DateTime.now();
+    if (now.day < 20 && activeItems.isNotEmpty) return const [];
+    final activeKeys =
+        activeItems.map((item) => normalizedProductName(item.name)).toSet();
+    final previousMonth = DateTime(now.year, now.month - 1);
+    final monthlyStapleCategories = {
+      GroceryCategory.pantry,
+      GroceryCategory.cookingOils,
+      GroceryCategory.dairy,
+      GroceryCategory.household,
+      GroceryCategory.personalCare,
+      GroceryCategory.sanitaryCare,
+      GroceryCategory.babyCare,
+      GroceryCategory.teaCoffee,
+    };
+    final products = <String, CatalogProduct>{};
+    for (final product in catalog.products) {
+      if (activeKeys.contains(product.key)) continue;
+      final boughtPreviousMonth =
+          product.lastPurchased.year == previousMonth.year &&
+              product.lastPurchased.month == previousMonth.month;
+      final repeated = product.purchaseCount >= 2;
+      if (!boughtPreviousMonth && !repeated) continue;
+      if (!monthlyStapleCategories.contains(product.category)) continue;
+      products.putIfAbsent(product.key, () => product);
+    }
+    final scale = familyProfile.isConfigured ? familyProfile.householdScale : 1;
+    return products.values.take(8).map((product) {
+      final quantity =
+          scale >= 6 && product.category != GroceryCategory.sanitaryCare
+              ? 2.0
+              : 1.0;
+      return ShoppingItem(
+        id: 'monthly-${DateTime.now().microsecondsSinceEpoch}-${product.key}',
+        name: product.name,
+        quantity: quantity,
+        category: product.category,
+        expectedUnitPrice: product.latestUnitPrice,
+        bestUnitPrice: product.bestUnitPrice,
+        bestStore: product.bestStore,
+        latestStore: product.latestStore,
+        note: familyProfile.isConfigured
+            ? 'Monthly suggestion for ${familyProfile.members} family members.'
+            : 'Monthly suggestion from past receipts.',
+        sourceReceiptId: null,
+        createdAt: DateTime.now(),
+      );
+    }).toList();
+  }
+
   Future<void> _addFromPreviousBills() async {
     final alreadyPlanned = items
         .where((item) => !item.checked)
@@ -224,7 +294,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => _PreviousBillProductPicker(products: products),
+      builder: (context) => _PreviousBillProductPicker(
+        products: products,
+        languageCode: languageCode,
+      ),
     );
     if (selected == null || selected.isEmpty) return;
     for (final product in selected) {
@@ -366,6 +439,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         .where((item) => item.note.toLowerCase().contains('missed'))
         .toList();
     final priceWatch = _priceWatchItems();
+    final monthlyEssentials = _monthlyEssentials();
 
     return Scaffold(
       backgroundColor: _ivory,
@@ -763,6 +837,54 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         ),
                       )),
                 ],
+                if (monthlyEssentials.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _sectionTitle(
+                    Icons.auto_awesome_outlined,
+                    'Suggested monthly essentials',
+                  ),
+                  Card(
+                    color: CartSenseColors.success,
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'CartSense prepared this from previous monthly purchases. Add all, or add only what you need.',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 8),
+                          ...monthlyEssentials.map((item) => ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading:
+                                    CategoryAvatar(category: item.category),
+                                title: Text(item.name),
+                                subtitle: Text(
+                                  '${categoryText(languageCode, item.category)} · about ₹${item.estimatedTotal.toStringAsFixed(2)}',
+                                ),
+                                trailing: IconButton(
+                                  tooltip: 'Add',
+                                  onPressed: () => _addQuick(item),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                ),
+                              )),
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: () =>
+                                  _addMonthlyEssentials(monthlyEssentials),
+                              icon: const Icon(Icons.playlist_add_check),
+                              label: const Text('Add all monthly essentials'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 20),
                 _sectionTitle(Icons.checklist, t('productsToBuy')),
                 if (items.isEmpty)
@@ -1018,7 +1140,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       );
 
   String _itemSubtitle(ShoppingItem item) {
-    final parts = <String>[item.category];
+    final parts = <String>[
+      categoryText(languageCode, item.category),
+      'Added ${_shortDate(item.createdAt)}',
+    ];
     if (item.reconciledReceiptId != null) {
       final purchased =
           item.purchasedName == null || item.purchasedName == item.name
@@ -1051,12 +1176,34 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     if (item.note.isNotEmpty) parts.add(item.note);
     return parts.join(' · ');
   }
+
+  String _shortDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
 }
 
 class _PreviousBillProductPicker extends StatefulWidget {
-  const _PreviousBillProductPicker({required this.products});
+  const _PreviousBillProductPicker({
+    required this.products,
+    required this.languageCode,
+  });
 
   final List<CatalogProduct> products;
+  final String languageCode;
 
   @override
   State<_PreviousBillProductPicker> createState() =>
@@ -1074,7 +1221,9 @@ class _PreviousBillProductPickerState
     return widget.products
         .where((product) =>
             product.key.contains(needle) ||
-            product.category.toLowerCase().contains(query.toLowerCase()))
+            categoryText(widget.languageCode, product.category)
+                .toLowerCase()
+                .contains(query.toLowerCase()))
         .toList();
   }
 
@@ -1137,7 +1286,7 @@ class _PreviousBillProductPickerState
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     subtitle: Text(
-                      '${product.category} · ₹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
+                      '${categoryText('en', product.category)} · ₹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),

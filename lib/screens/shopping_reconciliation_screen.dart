@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/receipt.dart';
 import '../models/shopping_item.dart';
 import '../models/shopping_reconciliation.dart';
+import '../services/language_store.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
 import '../theme/cartsense_theme.dart';
@@ -40,6 +41,18 @@ class _ShoppingReconciliationScreenState
     widget.receipt,
   );
   bool finishing = false;
+  String languageCode = 'en';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLanguage();
+  }
+
+  Future<void> _loadLanguage() async {
+    final language = await LanguageStore().load();
+    if (mounted) setState(() => languageCode = language.code);
+  }
 
   double get plannedEstimate => widget.plannedItems.fold(
         0,
@@ -225,7 +238,7 @@ class _ShoppingReconciliationScreenState
                       item.name,
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
-                    subtitle: Text(item.category),
+                    subtitle: Text(categoryText(languageCode, item.category)),
                     trailing: Text(
                       '₹${item.total.toStringAsFixed(2)}',
                       style: const TextStyle(fontWeight: FontWeight.w800),

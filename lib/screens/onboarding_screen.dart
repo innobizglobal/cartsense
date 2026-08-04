@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/family_profile_store.dart';
 import '../theme/cartsense_theme.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -13,6 +14,11 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final controller = PageController();
+  final members = TextEditingController();
+  final male = TextEditingController();
+  final female = TextEditingController();
+  final children = TextEditingController();
+  final seniors = TextEditingController();
   int index = 0;
 
   static const _pages = [
@@ -44,12 +50,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _finish() async {
     final preferences = await SharedPreferences.getInstance();
+    final totalMembers = int.tryParse(members.text.trim()) ?? 0;
+    if (totalMembers > 0) {
+      await FamilyProfileStore().save(FamilyProfile(
+        members: totalMembers.clamp(0, 30),
+        male: (int.tryParse(male.text.trim()) ?? 0).clamp(0, 30),
+        female: (int.tryParse(female.text.trim()) ?? 0).clamp(0, 30),
+        children: (int.tryParse(children.text.trim()) ?? 0).clamp(0, 30),
+        seniors: (int.tryParse(seniors.text.trim()) ?? 0).clamp(0, 30),
+      ));
+    }
     await preferences.setBool('cartsense_onboarding_complete', true);
     widget.onFinished();
   }
 
   void _next() {
-    if (index == _pages.length - 1) {
+    if (index == _pages.length) {
       _finish();
     } else {
       controller.nextPage(
@@ -62,6 +78,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void dispose() {
     controller.dispose();
+    members.dispose();
+    male.dispose();
+    female.dispose();
+    children.dispose();
+    seniors.dispose();
     super.dispose();
   }
 
@@ -107,15 +128,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   child: PageView.builder(
                     controller: controller,
                     onPageChanged: (value) => setState(() => index = value),
-                    itemCount: _pages.length,
+                    itemCount: _pages.length + 1,
                     itemBuilder: (context, pageIndex) =>
-                        _OnboardingPageView(page: _pages[pageIndex]),
+                        pageIndex == _pages.length
+                            ? _FamilyProfilePage(
+                                members: members,
+                                male: male,
+                                female: female,
+                                children: children,
+                                seniors: seniors,
+                              )
+                            : _OnboardingPageView(page: _pages[pageIndex]),
                   ),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(
-                    _pages.length,
+                    _pages.length + 1,
                     (dot) => AnimatedContainer(
                       duration: const Duration(milliseconds: 180),
                       margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -133,11 +162,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: _next,
-                  icon: Icon(index == _pages.length - 1
+                  icon: Icon(index == _pages.length
                       ? Icons.check
                       : Icons.arrow_forward),
                   label: Text(
-                    index == _pages.length - 1
+                    index == _pages.length
                         ? 'Start using CartSense'
                         : 'Continue',
                   ),
@@ -212,5 +241,93 @@ class _OnboardingPageView extends StatelessWidget {
             ),
           ),
         ],
+      );
+}
+
+class _FamilyProfilePage extends StatelessWidget {
+  const _FamilyProfilePage({
+    required this.members,
+    required this.male,
+    required this.female,
+    required this.children,
+    required this.seniors,
+  });
+
+  final TextEditingController members;
+  final TextEditingController male;
+  final TextEditingController female;
+  final TextEditingController children;
+  final TextEditingController seniors;
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 112,
+              height: 112,
+              decoration: BoxDecoration(
+                color: CartSenseColors.success,
+                borderRadius: BorderRadius.circular(32),
+              ),
+              child: const Icon(
+                Icons.family_restroom,
+                color: CartSenseColors.primary,
+                size: 58,
+              ),
+            ),
+            const SizedBox(height: 26),
+            const Text(
+              'Set up your household',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 30,
+                height: 1.05,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'CartSense uses this only on this phone to estimate monthly grocery needs. You can skip it and fill it later.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: CartSenseColors.textMuted,
+                fontSize: 15,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _numberField(members, 'Total family members'),
+            Row(
+              children: [
+                Expanded(child: _numberField(male, 'Male')),
+                const SizedBox(width: 10),
+                Expanded(child: _numberField(female, 'Female')),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(child: _numberField(children, 'Children')),
+                const SizedBox(width: 10),
+                Expanded(child: _numberField(seniors, 'Seniors')),
+              ],
+            ),
+          ],
+        ),
+      );
+
+  Widget _numberField(TextEditingController controller, String label) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+          ),
+        ),
       );
 }
