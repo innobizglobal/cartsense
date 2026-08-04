@@ -1,10 +1,14 @@
 package com.innobizglobal.cartsense_lite
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.media.ExifInterface
+import android.speech.RecognizerIntent
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
@@ -13,12 +17,17 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.Locale
 
 class MainActivity : FlutterActivity() {
     companion object {
         private const val OCR_CHANNEL = "cartsense/receipt_ocr"
+        private const val SPEECH_CHANNEL = "cartsense/speech_input"
+        private const val SPEECH_REQUEST_CODE = 4107
         private const val MAX_RECEIPT_PIXELS = 12_500_000L
     }
+
+    private var pendingSpeechResult: MethodChannel.Result? = null
 
     private data class OcrSegment(val text: String, val bounds: Rect)
 
@@ -122,6 +131,56 @@ class MainActivity : FlutterActivity() {
                         bitmap.recycle()
                     }
             }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SPEECH_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                if (call.method != "listen") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                if (pendingSpeechResult != null) {
+                    result.error("BUSY", "Voice input is already listening.", null)
+                    return@setMethodCallHandler
+                }
+                val language = call.argument<String>("language")
+                    ?: Locale.getDefault().toLanguageTag()
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(
+                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                    )
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Say the product name")
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                }
+                pendingSpeechResult = result
+                try {
+                    startActivityForResult(intent, SPEECH_REQUEST_CODE)
+                } catch (_: ActivityNotFoundException) {
+                    pendingSpeechResult = null
+                    result.error(
+                        "UNAVAILABLE",
+                        "Voice input is not available on this Android phone.",
+                        null,
+                    )
+                } catch (error: Exception) {
+                    pendingSpeechResult = null
+                    result.error("FAILED", error.message ?: error.javaClass.simpleName, null)
+                }
+            }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != SPEECH_REQUEST_CODE) return
+        val result = pendingSpeechResult ?: return
+        pendingSpeechResult = null
+        if (resultCode != Activity.RESULT_OK) {
+            result.error("CANCELLED", "Voice input was cancelled.", null)
+            return
+        }
+        val matches = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+        result.success(matches?.firstOrNull()?.trim().orEmpty())
     }
 
     private fun buildReceiptRows(recognized: Text): String {

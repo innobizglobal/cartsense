@@ -152,6 +152,8 @@ class _HomeScreenState extends State<HomeScreen> {
             'Reading product rows...',
             'Checking quantities and prices...',
             'Matching totals...',
+            'Removing repeated overlap rows...',
+            'Final AI cleanup...',
             'Preparing your bill review...',
           ]
         : const [
@@ -174,9 +176,9 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
       tick += 1;
-      final ceiling = aiEnhanced ? .92 : .86;
+      final ceiling = aiEnhanced ? .98 : .90;
       final next =
-          (scanProgress + (aiEnhanced ? .055 : .075)).clamp(0.0, ceiling);
+          (scanProgress + (aiEnhanced ? .035 : .07)).clamp(0.0, ceiling);
       final stageIndex = ((next / ceiling) * stages.length)
           .floor()
           .clamp(0, stages.length - 1);
@@ -187,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (tick > 36) {
         setState(() {
           scanStage = aiEnhanced
-              ? 'Still reading carefully...'
+              ? 'Final AI cleanup — checking totals and duplicates...'
               : 'Still reading on this device...';
         });
       }
@@ -294,7 +296,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return false;
   }
 
-  Future<void> _capture(ImageSource source, {bool aiEnhanced = false}) async {
+  Future<void> _capture(
+    ImageSource source, {
+    bool aiEnhanced = false,
+    bool reconcileAfterScan = false,
+  }) async {
     if (aiEnhanced && !aiService.isConfigured) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -321,7 +327,13 @@ class _HomeScreenState extends State<HomeScreen> {
           aiEnhanced ? await aiService.parse(file) : await parser.parse(file);
       await ProductMemoryStore().applyToReceipt(receipt);
       _finishScanProgress();
-      if (mounted) await _open(receipt);
+      if (mounted) {
+        if (reconcileAfterScan) {
+          await _openReconciliationForReceipt(receipt);
+        } else {
+          await _open(receipt);
+        }
+      }
     } catch (error) {
       if (mounted) {
         final message = error is AiReceiptException
@@ -359,7 +371,7 @@ class _HomeScreenState extends State<HomeScreen> {
         false;
   }
 
-  Future<void> _captureLongReceipt() async {
+  Future<void> _captureLongReceipt({bool reconcileAfterScan = false}) async {
     if (!aiService.isConfigured) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -381,11 +393,18 @@ class _HomeScreenState extends State<HomeScreen> {
     if (paths == null || paths.isEmpty || !mounted) return;
     _startScanProgress(aiEnhanced: true);
     try {
-      final receipt =
-          await aiService.parseImages(paths.map((path) => File(path)).toList());
+      final receipt = _removeLikelyOverlapDuplicates(
+        await aiService.parseImages(paths.map((path) => File(path)).toList()),
+      );
       await ProductMemoryStore().applyToReceipt(receipt);
       _finishScanProgress();
-      if (mounted) await _open(receipt);
+      if (mounted) {
+        if (reconcileAfterScan) {
+          await _openReconciliationForReceipt(receipt);
+        } else {
+          await _open(receipt);
+        }
+      }
     } catch (error) {
       if (mounted) {
         final message = error is AiReceiptException
@@ -408,7 +427,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showPrivateScanOptions() async {
+  Future<void> _showPrivateScanOptions(
+      {bool reconcileAfterScan = false}) async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       builder: (context) => SafeArea(
@@ -434,10 +454,84 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    if (source != null && mounted) await _capture(source);
+    if (source != null && mounted) {
+      await _capture(source, reconcileAfterScan: reconcileAfterScan);
+    }
   }
 
-  Future<void> _showCheckoutScanOptions() async {
+  Receipt _removeLikelyOverlapDuplicates(Receipt receipt) {
+    final seen = <String>{};
+    final cleaned = <ReceiptItem>[];
+    var removed = 0;
+    for (final item in receipt.items) {
+      final key = [
+        normalizedProductName(item.name),
+        item.quantity.toStringAsFixed(3),
+        item.unitPrice.toStringAsFixed(2),
+        item.discount.toStringAsFixed(2),
+        item.total.toStringAsFixed(2),
+      ].join('|');
+      if (key.trim().isEmpty || !seen.add(key)) {
+        removed += 1;
+        continue;
+      }
+      cleaned.add(item);
+    }
+    if (removed > 0) {
+      receipt.items = cleaned;
+      receipt.warnings = [
+        ...receipt.warnings,
+        'Removed $removed repeated row${removed == 1 ? '' : 's'} likely caused by overlapping long-bill photos.',
+      ];
+    }
+    return receipt;
+  }
+
+  Future<void> _openReconciliationForReceipt(Receipt receipt) async {
+    await ProductMemoryStore().applyToReceipt(receipt);
+    await ReceiptStore().save(receipt);
+    final shoppingItems = await ShoppingListStore().load();
+    final plannedItems = shoppingItems
+        .where((item) => item.reconciledReceiptId == null)
+        .toList();
+    if (!mounted) return;
+    if (plannedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+          'Bill scanned and saved. Add products to Shopping Assistant before checkout to reconcile.',
+        ),
+      ));
+      await _open(receipt);
+      return;
+    }
+    final result = await Navigator.of(context).push<ShoppingTripResult>(
+      MaterialPageRoute(
+        builder: (_) => ShoppingReconciliationScreen(
+          receipt: receipt,
+          plannedItems: plannedItems,
+          activeShoppingCount: activeShoppingCount,
+          onOpenShoppingList: _openShoppingAssistant,
+          onOpenInsights: _openInsights,
+        ),
+      ),
+    );
+    if (result == null || !mounted) {
+      await _refresh();
+      return;
+    }
+    receipt.shoppingTrip = result;
+    await ReceiptStore().save(receipt);
+    await _refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+        'Checkout reconciled: ${result.matches.length} bought, ${result.missing.length} still on your list, ${result.unplanned.length} extra.',
+      ),
+    ));
+  }
+
+  Future<void> _showCheckoutScanOptions(
+      {bool reconcileAfterScan = false}) async {
     final selection = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -481,13 +575,21 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (!mounted || selection == null) return;
     if (selection == 'ai_camera') {
-      await _capture(ImageSource.camera, aiEnhanced: true);
+      await _capture(
+        ImageSource.camera,
+        aiEnhanced: true,
+        reconcileAfterScan: reconcileAfterScan,
+      );
     } else if (selection == 'ai_gallery') {
-      await _capture(ImageSource.gallery, aiEnhanced: true);
+      await _capture(
+        ImageSource.gallery,
+        aiEnhanced: true,
+        reconcileAfterScan: reconcileAfterScan,
+      );
     } else if (selection == 'ai_long') {
-      await _captureLongReceipt();
+      await _captureLongReceipt(reconcileAfterScan: reconcileAfterScan);
     } else {
-      await _showPrivateScanOptions();
+      await _showPrivateScanOptions(reconcileAfterScan: reconcileAfterScan);
     }
   }
 
@@ -550,7 +652,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     ));
     await _refresh();
-    if (scanNow == true && mounted) await _showCheckoutScanOptions();
+    if (scanNow == true && mounted) {
+      await _showCheckoutScanOptions(reconcileAfterScan: true);
+    }
   }
 
   @override

@@ -12,6 +12,7 @@ import '../services/ai_receipt_service.dart';
 import '../services/language_store.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
+import '../services/voice_input_service.dart';
 import 'product_master_screen.dart';
 import '../theme/cartsense_theme.dart';
 import '../widgets/app_footer_nav.dart';
@@ -200,6 +201,39 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     setState(() => searchResults = []);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${item.name} added to your shopping list.'),
+    ));
+  }
+
+  Future<void> _addFromPreviousBills() async {
+    final alreadyPlanned = items
+        .where((item) => !item.checked)
+        .map((item) => normalizedProductName(item.name))
+        .toSet();
+    final products = catalog.products
+        .where((product) => !alreadyPlanned.contains(product.key))
+        .take(120)
+        .toList();
+    if (products.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Scan and save a bill first, then products appear here.'),
+      ));
+      return;
+    }
+    final selected = await showModalBottomSheet<List<CatalogProduct>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => _PreviousBillProductPicker(products: products),
+    );
+    if (selected == null || selected.isEmpty) return;
+    for (final product in selected) {
+      await store.add(_itemFromProduct(product));
+    }
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${selected.length} products added from previous bills.'),
     ));
   }
 
@@ -589,6 +623,28 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           ),
                     border: const OutlineInputBorder(),
                   ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: catalog.products.isEmpty
+                            ? null
+                            : _addFromPreviousBills,
+                        icon: const Icon(Icons.receipt_long_outlined),
+                        label: const Text('Add from previous bills'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _openProductMaster,
+                        icon: const Icon(Icons.inventory_2_outlined),
+                        label: const Text('All products'),
+                      ),
+                    ),
+                  ],
                 ),
                 if (recognizedCategory != null) ...[
                   const SizedBox(height: 8),
@@ -997,6 +1053,123 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 }
 
+class _PreviousBillProductPicker extends StatefulWidget {
+  const _PreviousBillProductPicker({required this.products});
+
+  final List<CatalogProduct> products;
+
+  @override
+  State<_PreviousBillProductPicker> createState() =>
+      _PreviousBillProductPickerState();
+}
+
+class _PreviousBillProductPickerState
+    extends State<_PreviousBillProductPicker> {
+  final selectedKeys = <String>{};
+  String query = '';
+
+  List<CatalogProduct> get filtered {
+    final needle = normalizedProductName(query);
+    if (needle.isEmpty) return widget.products;
+    return widget.products
+        .where((product) =>
+            product.key.contains(needle) ||
+            product.category.toLowerCase().contains(query.toLowerCase()))
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final products = filtered;
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * .82,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Add from previous bills',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Select products you already bought before. CartSense will reuse the latest price and category.',
+                    style: TextStyle(color: CartSenseColors.textMuted),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    onChanged: (value) => setState(() => query = value),
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      labelText: 'Search previous products',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: products.length,
+                itemBuilder: (context, index) {
+                  final product = products[index];
+                  final selected = selectedKeys.contains(product.key);
+                  return CheckboxListTile(
+                    value: selected,
+                    onChanged: (value) {
+                      setState(() {
+                        if (value == true) {
+                          selectedKeys.add(product.key);
+                        } else {
+                          selectedKeys.remove(product.key);
+                        }
+                      });
+                    },
+                    secondary: CategoryAvatar(category: product.category),
+                    title: Text(
+                      product.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: Text(
+                      '${product.category} · ₹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
+              child: FilledButton.icon(
+                onPressed: selectedKeys.isEmpty
+                    ? null
+                    : () {
+                        Navigator.pop(
+                          context,
+                          widget.products
+                              .where((product) =>
+                                  selectedKeys.contains(product.key))
+                              .toList(),
+                        );
+                      },
+                icon: const Icon(Icons.playlist_add_check),
+                label: Text('Add ${selectedKeys.length} selected'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ShoppingItemEditor extends StatefulWidget {
   const _ShoppingItemEditor({
     required this.catalog,
@@ -1027,6 +1200,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
   double? shelfSalePrice;
   String? shelfPackSize;
   bool scanningShelf = false;
+  bool listeningVoice = false;
   String languageCode = 'en';
 
   @override
@@ -1090,6 +1264,28 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
       category = product.category;
       matches = [product];
     });
+  }
+
+  Future<void> _listenForProductName() async {
+    setState(() => listeningVoice = true);
+    try {
+      final spoken = await VoiceInputService().listen(
+        languageCode: languageCode,
+      );
+      if (spoken == null || !mounted) return;
+      name.text = spoken;
+      _nameChanged(spoken);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Heard: $spoken'),
+      ));
+    } on VoiceInputException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error.message),
+      ));
+    } finally {
+      if (mounted) setState(() => listeningVoice = false);
+    }
   }
 
   Future<void> _pickReminder() async {
@@ -1214,6 +1410,17 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                     labelText: t('productOrType'),
                     hintText: t('forExampleTea'),
                     prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      tooltip: 'Speak product name',
+                      onPressed: listeningVoice ? null : _listenForProductName,
+                      icon: listeningVoice
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.mic_none_outlined),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
