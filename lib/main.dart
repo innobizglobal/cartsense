@@ -18,6 +18,7 @@ import 'screens/shopping_list_screen.dart';
 import 'screens/shopping_reconciliation_screen.dart';
 import 'services/receipt_export.dart';
 import 'services/ai_receipt_service.dart';
+import 'services/family_profile_store.dart';
 import 'services/language_store.dart';
 import 'services/product_memory_store.dart';
 import 'services/receipt_parser.dart';
@@ -71,7 +72,16 @@ class _OnboardingGateState extends State<OnboardingGate> {
 
   Future<bool> _isComplete() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool('cartsense_onboarding_complete') == true;
+    final onboardingComplete =
+        preferences.getBool('cartsense_onboarding_complete') == true;
+    if (!onboardingComplete) return false;
+
+    final familyPrompted =
+        preferences.getBool('cartsense_family_profile_prompted_v1') == true;
+    if (familyPrompted) return true;
+
+    final familyProfile = await FamilyProfileStore().load();
+    return familyProfile.isConfigured;
   }
 
   @override

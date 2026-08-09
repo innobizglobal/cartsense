@@ -24,6 +24,7 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues({
       'cartsense_onboarding_complete': true,
+      'cartsense_family_profile_prompted_v1': true,
     });
 
     await tester.pumpWidget(const CartSenseApp());
@@ -72,6 +73,7 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues({
       'cartsense_onboarding_complete': true,
+      'cartsense_family_profile_prompted_v1': true,
     });
 
     await tester.pumpWidget(const CartSenseApp());
@@ -103,5 +105,29 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Store comparison'), findsOneWidget);
+  });
+
+  testWidgets('existing users see family profile onboarding once if missing',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'cartsense_onboarding_complete': true,
+    });
+
+    await tester.pumpWidget(const CartSenseApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scan grocery bills'), findsOneWidget);
+
+    for (var i = 0; i < 4; i++) {
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+    }
+
+    expect(find.text('Set up your household'), findsOneWidget);
+
+    await tester.tap(find.text('Start using CartSense'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scan a grocery receipt'), findsOneWidget);
   });
 }

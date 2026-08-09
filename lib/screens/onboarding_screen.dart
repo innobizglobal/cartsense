@@ -61,6 +61,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ));
     }
     await preferences.setBool('cartsense_onboarding_complete', true);
+    await preferences.setBool('cartsense_family_profile_prompted_v1', true);
     widget.onFinished();
   }
 
