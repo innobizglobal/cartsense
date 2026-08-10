@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
+import '../models/shopping_item.dart';
 
 class OnlinePriceOffer {
   const OnlinePriceOffer({
@@ -88,6 +89,84 @@ class OnlinePriceComparison {
   bool get isCheaperOnline => possibleSaving >= 1;
 }
 
+class StoreCartOption {
+  const StoreCartOption({
+    required this.storeName,
+    required this.total,
+    required this.knownItems,
+    required this.missingItems,
+  });
+
+  final String storeName;
+  final double total;
+  final int knownItems;
+  final List<String> missingItems;
+
+  factory StoreCartOption.fromJson(Map<String, dynamic> json) =>
+      StoreCartOption(
+        storeName: json['storeName']?.toString() ?? 'Known store',
+        total: (json['total'] as num?)?.toDouble() ?? 0,
+        knownItems: (json['knownItems'] as num?)?.toInt() ?? 0,
+        missingItems: ((json['missingItems'] as List?) ?? [])
+            .map((item) => item.toString())
+            .toList(),
+      );
+}
+
+class CartRemovalSuggestion {
+  const CartRemovalSuggestion({
+    required this.name,
+    required this.savesAbout,
+  });
+
+  final String name;
+  final double savesAbout;
+
+  factory CartRemovalSuggestion.fromJson(Map<String, dynamic> json) =>
+      CartRemovalSuggestion(
+        name: json['name']?.toString() ?? '',
+        savesAbout: (json['savesAbout'] as num?)?.toDouble() ?? 0,
+      );
+}
+
+class OnlineCartComparison {
+  const OnlineCartComparison({
+    required this.plannedTotal,
+    required this.bestKnownTotal,
+    required this.budget,
+    required this.overBudgetBy,
+    required this.storeOptions,
+    required this.removalSuggestions,
+  });
+
+  final double plannedTotal;
+  final double bestKnownTotal;
+  final double budget;
+  final double overBudgetBy;
+  final List<StoreCartOption> storeOptions;
+  final List<CartRemovalSuggestion> removalSuggestions;
+
+  factory OnlineCartComparison.fromJson(Map<String, dynamic> json) =>
+      OnlineCartComparison(
+        plannedTotal: (json['plannedTotal'] as num?)?.toDouble() ?? 0,
+        bestKnownTotal: (json['bestKnownTotal'] as num?)?.toDouble() ?? 0,
+        budget: (json['budget'] as num?)?.toDouble() ?? 0,
+        overBudgetBy: (json['overBudgetBy'] as num?)?.toDouble() ?? 0,
+        storeOptions: ((json['storeOptions'] as List?) ?? [])
+            .whereType<Map>()
+            .map((item) => StoreCartOption.fromJson(
+                  item.cast<String, dynamic>(),
+                ))
+            .toList(),
+        removalSuggestions: ((json['removalSuggestions'] as List?) ?? [])
+            .whereType<Map>()
+            .map((item) => CartRemovalSuggestion.fromJson(
+                  item.cast<String, dynamic>(),
+                ))
+            .toList(),
+      );
+}
+
 class PriceIntelligenceApi {
   PriceIntelligenceApi({
     http.Client? client,
@@ -99,7 +178,7 @@ class PriceIntelligenceApi {
 
   Future<List<OnlinePriceOffer>> search(
     String query, {
-    String providers = 'demo',
+    String providers = 'receipt,shelf,demo',
     int limit = 4,
   }) async {
     final uri = Uri.parse('$baseUrl/api/price/search').replace(
@@ -126,6 +205,82 @@ class PriceIntelligenceApi {
           .compareTo(b.unitPrice ?? b.sellingPrice),
     );
     return offers;
+  }
+
+  Future<void> uploadReceipt(Receipt receipt) async {
+    final items = receipt.items
+        .where((item) => item.unitPrice > 0 || item.total > 0)
+        .map((item) => {
+              'productName': item.name,
+              'quantity': item.quantity,
+              'unitPrice': item.unitPrice,
+              'sellingPrice': item.unitPrice > 0 ? item.unitPrice : item.total,
+              'category': item.category,
+              'confidence': item.confidence,
+            })
+        .toList();
+    if (items.isEmpty) return;
+    await _postJson('/api/price/ingest/receipt', {
+      'receiptId': receipt.id,
+      'storeName': receipt.store,
+      'purchasedAt': receipt.purchasedAt.toIso8601String(),
+      'items': items,
+    });
+  }
+
+  Future<void> uploadShelfPrice(ShoppingItem item) async {
+    final price = item.salePrice ?? item.expectedUnitPrice;
+    if (price <= 0) return;
+    await _postJson('/api/price/ingest/shelf', {
+      'storeName': item.latestStore.isNotEmpty ? item.latestStore : 'Shelf',
+      'items': [
+        {
+          'productName': item.name,
+          'quantity': item.quantity,
+          'sellingPrice': price,
+          'mrp': item.mrp,
+          'category': item.category,
+          'confidence': .9,
+        }
+      ],
+    });
+  }
+
+  Future<OnlineCartComparison> compareCart(
+    List<ShoppingItem> items, {
+    double budget = 0,
+  }) async {
+    final decoded = await _postJson('/api/price/cart/compare', {
+      'budget': budget,
+      'providers': 'receipt,shelf,demo',
+      'items': items
+          .map((item) => {
+                'name': item.name,
+                'quantity': item.quantity,
+                'expectedUnitPrice': item.expectedUnitPrice,
+                'category': item.category,
+              })
+          .toList(),
+    });
+    return OnlineCartComparison.fromJson(decoded);
+  }
+
+  Future<Map<String, dynamic>> _postJson(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await client
+        .post(
+          uri,
+          headers: const {'content-type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 8));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('Price API returned ${response.statusCode}');
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   Future<List<OnlinePriceComparison>> compareReceiptPrices(

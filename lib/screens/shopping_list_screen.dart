@@ -11,6 +11,7 @@ import '../services/budget_store.dart';
 import '../services/ai_receipt_service.dart';
 import '../services/family_profile_store.dart';
 import '../services/language_store.dart';
+import '../services/price_intelligence_api.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
 import '../services/voice_input_service.dart';
@@ -145,6 +146,13 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       await store.add(edited);
     } else {
       await store.update(edited);
+    }
+    if ((edited.salePrice ?? edited.expectedUnitPrice) > 0) {
+      try {
+        await PriceIntelligenceApi().uploadShelfPrice(edited);
+      } on Object {
+        // Keep list saving fast and reliable even when online price sync fails.
+      }
     }
     await _load();
     final storedItem = existing == null
@@ -1758,6 +1766,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
   final extraItems = <ShoppingItem>[];
   late double tripBudget;
   String languageCode = 'en';
+  Future<OnlineCartComparison>? onlineCartComparison;
 
   List<ShoppingItem> get stillToBuy =>
       widget.items.where((item) => !item.checked).toList();
@@ -1782,6 +1791,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
         widget.items.fold(0.0, (total, item) => total + item.estimatedTotal);
     tripBudget = plannedTotal > 0 ? plannedTotal : 1000;
     _loadLanguage();
+    _refreshCartComparison();
   }
 
   Future<void> _loadLanguage() async {
@@ -1796,7 +1806,22 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
     await widget.onToggle(item, checked);
     if (mounted) {
       setState(() => updating = false);
+      _refreshCartComparison();
     }
+  }
+
+  void _refreshCartComparison() {
+    final basket = inBasket;
+    if (basket.isEmpty) {
+      setState(() => onlineCartComparison = null);
+      return;
+    }
+    setState(() {
+      onlineCartComparison = PriceIntelligenceApi().compareCart(
+        basket,
+        budget: tripBudget,
+      );
+    });
   }
 
   Future<void> _setTripBudget() async {
@@ -1834,6 +1859,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
     controller.dispose();
     if (value != null && value > 0) {
       setState(() => tripBudget = value);
+      _refreshCartComparison();
     }
   }
 
@@ -1853,6 +1879,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
           : '${item.note} · Extra picked during trip.';
       extraItems.add(item);
     });
+    _refreshCartComparison();
   }
 
   List<ShoppingItem> _removalSuggestions() {
@@ -1874,6 +1901,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
   void _removeSuggestion(ShoppingItem item) {
     if (extraItems.any((value) => value.id == item.id)) {
       setState(() => extraItems.removeWhere((value) => value.id == item.id));
+      _refreshCartComparison();
     } else {
       _toggle(item, false);
     }
@@ -2016,6 +2044,8 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            _onlineCartComparisonCard(),
+            const SizedBox(height: 16),
             if (extraItems.isNotEmpty) ...[
               _tripSectionTitle(
                 Icons.add_circle_outline,
@@ -2026,8 +2056,11 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                 (item) => _TripItemCard(
                   item: item,
                   checked: true,
-                  onToggle: () => setState(() =>
-                      extraItems.removeWhere((value) => value.id == item.id)),
+                  onToggle: () {
+                    setState(() =>
+                        extraItems.removeWhere((value) => value.id == item.id));
+                    _refreshCartComparison();
+                  },
                   onEdit: () {},
                 ),
               ),
@@ -2113,6 +2146,131 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
           ),
         ),
       );
+
+  Widget _onlineCartComparisonCard() {
+    final future = onlineCartComparison;
+    if (future == null) {
+      return Card(
+        color: CartSenseColors.surfaceMuted,
+        child: ListTile(
+          leading: const Icon(Icons.storefront_outlined, color: _green),
+          title: const Text(
+            'Store-wise best price',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: const Text(
+            'Tick items or add extras to compare known prices before checkout.',
+          ),
+          trailing: IconButton(
+            onPressed: _refreshCartComparison,
+            icon: const Icon(Icons.refresh),
+          ),
+        ),
+      );
+    }
+    return FutureBuilder<OnlineCartComparison>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Card(
+            color: CartSenseColors.surfaceMuted,
+            child: const Padding(
+              padding: EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Checking known store prices...',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  SizedBox(height: 12),
+                  LinearProgressIndicator(),
+                ],
+              ),
+            ),
+          );
+        }
+        final comparison = snapshot.data;
+        final stores = comparison?.storeOptions ?? const <StoreCartOption>[];
+        if (snapshot.hasError || comparison == null || stores.isEmpty) {
+          return Card(
+            color: CartSenseColors.surfaceMuted,
+            child: ListTile(
+              leading: const Icon(Icons.storefront_outlined, color: _green),
+              title: const Text(
+                'Store-wise best price',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: const Text(
+                'No shared store prices yet. CartSense improves as receipts and shelf prices sync.',
+              ),
+              trailing: IconButton(
+                onPressed: _refreshCartComparison,
+                icon: const Icon(Icons.refresh),
+              ),
+            ),
+          );
+        }
+        return Card(
+          color: CartSenseColors.surfaceMuted,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.storefront_outlined, color: _green),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Best known store options',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _refreshCartComparison,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ...stores.take(3).map(
+                      (store) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.local_offer_outlined),
+                        title: Text(store.storeName),
+                        subtitle: Text(
+                          store.missingItems.isEmpty
+                              ? '${store.knownItems} known prices'
+                              : '${store.knownItems} known · ${store.missingItems.length} missing',
+                        ),
+                        trailing: Text(
+                          '₹${store.total.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: _green,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                if (comparison.overBudgetBy > 0) ...[
+                  const Divider(),
+                  Text(
+                    'Online estimate is ₹${comparison.overBudgetBy.toStringAsFixed(0)} over budget.',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Widget _tripSectionTitle(IconData icon, String title, int count) => Padding(
         padding: const EdgeInsets.only(bottom: 8),

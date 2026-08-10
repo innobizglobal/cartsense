@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/receipt.dart';
+import 'price_intelligence_api.dart';
 import 'product_memory_store.dart';
 
 class ReceiptStore {
@@ -61,6 +63,16 @@ class ReceiptStore {
       _key,
       receipts.map((item) => item.encode()).toList(),
     );
+    unawaited(_uploadPriceMemory(receipt));
+  }
+
+  Future<void> _uploadPriceMemory(Receipt receipt) async {
+    try {
+      await PriceIntelligenceApi().uploadReceipt(receipt);
+    } on Object {
+      // Price intelligence is helpful, not required. Local receipt saving must
+      // always succeed even if the network or hosted API is unavailable.
+    }
   }
 
   Future<void> _preserveReceiptImage(Receipt receipt) async {
