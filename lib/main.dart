@@ -10,6 +10,7 @@ import 'models/savings_intelligence.dart';
 import 'models/shopping_item.dart';
 import 'models/shopping_trip.dart';
 import 'models/spending_insights.dart';
+import 'screens/account_screen.dart';
 import 'screens/insights_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/product_master_screen.dart';
@@ -27,9 +28,11 @@ import 'services/shopping_list_store.dart';
 import 'theme/cartsense_theme.dart';
 import 'widgets/app_footer_nav.dart';
 import 'widgets/category_icon.dart';
+import 'services/auth_service.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await CartSenseAuthService.initialize();
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.dark,
@@ -638,6 +641,13 @@ class _HomeScreenState extends State<HomeScreen> {
     await _loadLanguage();
   }
 
+  Future<void> _openAccount() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const AccountScreen(),
+    ));
+    await _refresh();
+  }
+
   Future<void> _openProductMaster() async {
     await _refresh();
     if (!mounted) return;
@@ -700,7 +710,9 @@ class _HomeScreenState extends State<HomeScreen> {
             PopupMenuButton<String>(
               tooltip: t('moreOptions'),
               onSelected: (value) {
-                if (value == 'private') {
+                if (value == 'account') {
+                  _openAccount();
+                } else if (value == 'private') {
                   _showPrivateScanOptions();
                 } else if (value == 'demo') {
                   _open(createDemoReceipt());
@@ -709,6 +721,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 }
               },
               itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'account',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.account_circle_outlined),
+                    title: Text(t('account')),
+                    subtitle: Text(CartSenseAuthService.isConfigured
+                        ? t('guestOrCloudSync')
+                        : t('guestMode')),
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'settings',
                   child: ListTile(
