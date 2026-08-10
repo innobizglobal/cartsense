@@ -17,10 +17,13 @@ class AccountScreen extends StatefulWidget {
 class _AccountScreenState extends State<AccountScreen> {
   final email = TextEditingController();
   final password = TextEditingController();
+  final phone = TextEditingController(text: '+91');
+  final phoneOtp = TextEditingController();
   StreamSubscription<AuthState>? subscription;
   AppLanguage language = AppLanguage.english;
   bool busy = false;
   bool createAccount = false;
+  bool phoneOtpSent = false;
   User? user = CartSenseAuthService.instance.currentUser;
 
   @override
@@ -46,6 +49,8 @@ class _AccountScreenState extends State<AccountScreen> {
     subscription?.cancel();
     email.dispose();
     password.dispose();
+    phone.dispose();
+    phoneOtp.dispose();
     super.dispose();
   }
 
@@ -96,6 +101,67 @@ class _AccountScreenState extends State<AccountScreen> {
       _message(error.message);
     } catch (_) {
       _message(t('loginFailed'));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _sendPhoneOtp() async {
+    if (phone.text.trim().length < 8) {
+      _message(t('enterPhone'));
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      await CartSenseAuthService.instance.sendPhoneOtp(phone.text);
+      setState(() => phoneOtpSent = true);
+      _message(t('phoneOtpSent'));
+    } on AuthException catch (error) {
+      _message(error.message);
+    } on AuthUnavailableException catch (error) {
+      _message(error.message);
+    } catch (_) {
+      _message(t('loginFailed'));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _verifyPhoneOtp() async {
+    if (phoneOtp.text.trim().length < 4) {
+      _message(t('enterOtp'));
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      await CartSenseAuthService.instance.verifyPhoneOtp(
+        phone: phone.text,
+        token: phoneOtp.text,
+      );
+      setState(() => user = CartSenseAuthService.instance.currentUser);
+      _message(t('signedIn'));
+    } on AuthException catch (error) {
+      _message(error.message);
+    } on AuthUnavailableException catch (error) {
+      _message(error.message);
+    } catch (_) {
+      _message(t('loginFailed'));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() => busy = true);
+    try {
+      final launched = await CartSenseAuthService.instance.signInWithGoogle();
+      if (!launched) _message(t('googleLoginFailed'));
+    } on AuthException catch (error) {
+      _message(error.message);
+    } on AuthUnavailableException catch (error) {
+      _message(error.message);
+    } catch (_) {
+      _message(t('googleLoginFailed'));
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -251,6 +317,11 @@ class _AccountScreenState extends State<AccountScreen> {
                 onPressed: busy ? null : _sendOtp,
                 child: Text(t('sendMagicLink')),
               ),
+              OutlinedButton.icon(
+                onPressed: busy ? null : _signInWithGoogle,
+                icon: const Icon(Icons.g_mobiledata),
+                label: Text(t('continueWithGoogle')),
+              ),
               TextButton(
                 onPressed: busy
                     ? null
@@ -258,6 +329,50 @@ class _AccountScreenState extends State<AccountScreen> {
                 child: Text(
                   createAccount ? t('alreadyHaveAccount') : t('newCreateOne'),
                 ),
+              ),
+              const Divider(height: 28),
+              Text(
+                t('phoneOtpLogin'),
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phone,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: t('phoneNumber'),
+                  prefixIcon: const Icon(Icons.phone_android_outlined),
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (phoneOtpSent)
+                TextField(
+                  controller: phoneOtp,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: t('otpCode'),
+                    prefixIcon: const Icon(Icons.password_outlined),
+                  ),
+                ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: busy ? null : _sendPhoneOtp,
+                      child: Text(t('sendOtp')),
+                    ),
+                  ),
+                  if (phoneOtpSent) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: busy ? null : _verifyPhoneOtp,
+                        child: Text(t('verifyOtp')),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
