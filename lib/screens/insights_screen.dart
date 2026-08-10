@@ -3,6 +3,7 @@ import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../services/budget_store.dart';
 import '../services/language_store.dart';
+import '../services/price_intelligence_api.dart';
 import '../services/receipt_export.dart';
 import '../services/receipt_store.dart';
 import '../theme/cartsense_theme.dart';
@@ -34,9 +35,11 @@ class InsightsScreen extends StatefulWidget {
 class _InsightsScreenState extends State<InsightsScreen> {
   final _budgetStore = BudgetStore();
   final _receiptStore = ReceiptStore();
+  final _priceApi = PriceIntelligenceApi();
   late List<Receipt> _receipts = widget.receipts;
   AppLanguage language = AppLanguage.english;
   double budget = 0;
+  Future<List<OnlinePriceComparison>>? onlinePriceComparisons;
 
   SavingsIntelligence get insights =>
       SavingsIntelligence.fromReceipts(_receipts);
@@ -55,6 +58,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (oldWidget.receipts != widget.receipts) {
       _receipts = widget.receipts;
       _loadReceipts();
+      _refreshOnlinePrices();
     }
   }
 
@@ -72,7 +76,20 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   Future<void> _loadReceipts() async {
     final receipts = await _receiptStore.load();
-    if (mounted) setState(() => _receipts = receipts);
+    if (mounted) {
+      setState(() => _receipts = receipts);
+      _refreshOnlinePrices();
+    }
+  }
+
+  void _refreshOnlinePrices() {
+    if (_receipts.isEmpty) {
+      setState(() => onlinePriceComparisons = null);
+      return;
+    }
+    setState(() {
+      onlinePriceComparisons = _priceApi.compareReceiptPrices(_receipts);
+    });
   }
 
   Future<void> _editBudget() async {
@@ -542,12 +559,20 @@ class _InsightsScreenState extends State<InsightsScreen> {
             title: t('betterPricesNearby'),
           ),
           const SizedBox(height: 10),
-          if (data.cheaperStoreOptions.isEmpty)
+          _OnlinePriceCard(
+            future: onlinePriceComparisons,
+            fallback: data.cheaperStoreOptions,
+            onRefresh: _refreshOnlinePrices,
+          ),
+          if (data.cheaperStoreOptions.isEmpty &&
+              onlinePriceComparisons == null) ...[
+            const SizedBox(height: 8),
             _EmptyCard(
               t('scanMoreStores'),
             )
-          else
-            ...data.cheaperStoreOptions.take(8).map((item) => Card(
+          ] else ...[
+            const SizedBox(height: 8),
+            ...data.cheaperStoreOptions.take(6).map((item) => Card(
                   color: CartSenseColors.success,
                   child: ListTile(
                     leading: const Icon(Icons.savings_outlined, color: _green),
@@ -564,6 +589,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                     ),
                   ),
                 )),
+          ],
           const SizedBox(height: 20),
           _SectionTitle(
             icon: Icons.replay_outlined,
@@ -771,6 +797,165 @@ class _EmptyCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Text(message),
         ),
+      );
+}
+
+class _OnlinePriceCard extends StatelessWidget {
+  const _OnlinePriceCard({
+    required this.future,
+    required this.fallback,
+    required this.onRefresh,
+  });
+
+  final Future<List<OnlinePriceComparison>>? future;
+  final List<ProductPriceInsight> fallback;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = future;
+    if (pending == null) {
+      return _onlineShell(
+        child: ListTile(
+          leading: const Icon(Icons.cloud_sync_outlined, color: _green),
+          title: const Text(
+            'Online price check',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: const Text(
+            'Save a receipt first. CartSense will then compare your products with online prices.',
+          ),
+          trailing: IconButton(
+            tooltip: 'Refresh online prices',
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh),
+          ),
+        ),
+      );
+    }
+
+    return FutureBuilder<List<OnlinePriceComparison>>(
+      future: pending,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _onlineShell(
+            child: const Padding(
+              padding: EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.cloud_sync_outlined, color: _green),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Checking live online prices...',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 12),
+                  LinearProgressIndicator(),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final comparisons = snapshot.data ?? const <OnlinePriceComparison>[];
+        if (snapshot.hasError || comparisons.isEmpty) {
+          final message = fallback.isEmpty
+              ? 'Online API is connected. Scan and save a receipt so CartSense knows which products to compare.'
+              : 'No online offer beat your saved receipt prices yet. Store-to-store savings are shown below.';
+          return _onlineShell(
+            child: ListTile(
+              leading: const Icon(Icons.wifi_tethering, color: _green),
+              title: const Text(
+                'Live price check ready',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text(message),
+              trailing: IconButton(
+                tooltip: 'Refresh online prices',
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh),
+              ),
+            ),
+          );
+        }
+
+        return _onlineShell(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.wifi_tethering, color: _green),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Live online matches',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Refresh online prices',
+                      onPressed: onRefresh,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ],
+                ),
+              ),
+              ...comparisons.map((comparison) {
+                final offer = comparison.offer;
+                final provider = offer.source == 'demo'
+                    ? '${offer.providerLabel} · demo'
+                    : offer.providerLabel;
+                final priceText =
+                    'Receipt: ₹${comparison.localPrice.toStringAsFixed(2)} at ${comparison.localStore}\n'
+                    '$provider: ₹${offer.sellingPrice.toStringAsFixed(2)}'
+                    '${offer.packSize == null ? '' : ' · ${offer.packSize}'}';
+                return ListTile(
+                  leading: Icon(
+                    comparison.isCheaperOnline
+                        ? Icons.savings_outlined
+                        : Icons.shopping_bag_outlined,
+                    color: _green,
+                  ),
+                  title: Text(
+                    offer.productName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(priceText),
+                  trailing: comparison.isCheaperOnline
+                      ? Text(
+                          'Save ₹${comparison.possibleSaving.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: _green,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        )
+                      : Text(
+                          '₹${offer.sellingPrice.toStringAsFixed(0)}',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _onlineShell({required Widget child}) => Card(
+        color: CartSenseColors.surfaceMuted,
+        child: child,
       );
 }
 
