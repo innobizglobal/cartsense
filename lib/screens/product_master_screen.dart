@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/product_catalog.dart';
 import '../models/receipt.dart';
 import '../models/shopping_item.dart';
+import '../services/language_store.dart';
 import '../services/shopping_list_store.dart';
 import '../theme/cartsense_theme.dart';
 import '../widgets/app_footer_nav.dart';
@@ -42,10 +43,12 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
   Set<String> favorites = {};
   String query = '';
   bool favoritesOnly = false;
+  AppLanguage language = AppLanguage.english;
 
   @override
   void initState() {
     super.initState();
+    _loadLanguage();
     _loadFavorites();
   }
 
@@ -62,6 +65,13 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
       favorites = (preferences.getStringList(_favoritesKey) ?? []).toSet();
     });
   }
+
+  Future<void> _loadLanguage() async {
+    final saved = await LanguageStore().load();
+    if (mounted) setState(() => language = saved);
+  }
+
+  String t(String key) => appText(language.code, key);
 
   Future<void> _toggleFavorite(CatalogProduct product) async {
     setState(() {
@@ -101,14 +111,14 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
       latestStore: product.latestStore,
       note: favorites.contains(product.key)
           ? 'Added from favorite products.'
-          : 'Added from product master.',
+          : 'Added from usual items.',
       createdAt: DateTime.now(),
     ));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${product.name} added to Shopping Assistant.'),
       action: SnackBarAction(
-        label: 'Open',
+        label: t('open'),
         onPressed: () {
           Navigator.pop(context);
           widget.onOpenShoppingList?.call();
@@ -124,10 +134,10 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
     return Scaffold(
       backgroundColor: _ivory,
       appBar: AppBar(
-        title: const Text('Product master'),
+        title: Text(t('productMaster')),
         actions: [
           IconButton(
-            tooltip: favoritesOnly ? 'Show all products' : 'Show favorites',
+            tooltip: favoritesOnly ? t('showAllProducts') : t('showFavorites'),
             onPressed: () => setState(() => favoritesOnly = !favoritesOnly),
             icon: Icon(favoritesOnly ? Icons.star : Icons.star_border),
           ),
@@ -146,8 +156,8 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Products CartSense remembers',
+                        Text(
+                          t('productsRemembered'),
                           style: TextStyle(color: Colors.white70),
                         ),
                         const SizedBox(height: 4),
@@ -160,7 +170,7 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
                           ),
                         ),
                         Text(
-                          '${favorites.length} favorites Â· ${categories.length} categories',
+                          '${favorites.length} ${t('favorites')} · ${categories.length} ${t('categories')}',
                           style: const TextStyle(color: Colors.white70),
                         ),
                       ],
@@ -177,13 +187,13 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
             controller: searchController,
             onChanged: (value) => setState(() => query = value),
             decoration: InputDecoration(
-              labelText: 'Search products',
-              hintText: 'Tea, oil, paneer, pads...',
+              labelText: t('searchProducts'),
+              hintText: t('searchProductsHint'),
               prefixIcon: const Icon(Icons.search),
               suffixIcon: query.isEmpty
                   ? null
                   : IconButton(
-                      tooltip: 'Clear search',
+                      tooltip: t('clearSearch'),
                       onPressed: () {
                         searchController.clear();
                         setState(() => query = '');
@@ -197,12 +207,12 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
             spacing: 8,
             children: [
               ChoiceChip(
-                label: const Text('All products'),
+                label: Text(t('allProducts')),
                 selected: !favoritesOnly,
                 onSelected: (_) => setState(() => favoritesOnly = false),
               ),
               ChoiceChip(
-                label: const Text('Favorites'),
+                label: Text(t('favorites')),
                 selected: favoritesOnly,
                 onSelected: (_) => setState(() => favoritesOnly = true),
               ),
@@ -210,11 +220,11 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
           ),
           const SizedBox(height: 14),
           if (catalog.products.isEmpty)
-            const _ProductEmptyState()
+            _ProductEmptyState(languageCode: language.code)
           else if (shown.isEmpty)
-            const _ProductEmptyState(
-              message:
-                  'No products match this view. Try another search or show all products.',
+            _ProductEmptyState(
+              languageCode: language.code,
+              message: t('noProductsMatch'),
             )
           else
             ...shown.map((product) => Card(
@@ -227,7 +237,10 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                     subtitle: Text(
-                      '${product.category}\nLatest â‚¹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore} Â· bought ${product.purchaseCount} times',
+                      '${categoryText(language.code, product.category)}\n'
+                      '${t('latest')} ₹${product.latestUnitPrice.toStringAsFixed(2)} '
+                      '${t('at')} ${product.latestStore} · '
+                      '${product.purchaseCount} ${t('boughtTimes')}',
                     ),
                     isThreeLine: true,
                     trailing: SizedBox(
@@ -237,8 +250,8 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
                         children: [
                           IconButton(
                             tooltip: favorites.contains(product.key)
-                                ? 'Remove favorite'
-                                : 'Favorite',
+                                ? t('removeFavorite')
+                                : t('favorite'),
                             onPressed: () => _toggleFavorite(product),
                             icon: Icon(
                               favorites.contains(product.key)
@@ -250,7 +263,7 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Add to Shopping Assistant',
+                            tooltip: t('addToShopping'),
                             onPressed: () => _addToShoppingList(product),
                             icon: const Icon(Icons.add_circle, color: _green),
                           ),
@@ -283,11 +296,14 @@ class _ProductMasterScreenState extends State<ProductMasterScreen> {
 
 class _ProductEmptyState extends StatelessWidget {
   const _ProductEmptyState({
-    this.message =
-        'Scan and save receipts first. Products you buy will appear here automatically.',
+    required this.languageCode,
+    this.message,
   });
 
-  final String message;
+  final String languageCode;
+  final String? message;
+
+  String t(String key) => appText(languageCode, key);
 
   @override
   Widget build(BuildContext context) => Card(
@@ -298,12 +314,14 @@ class _ProductEmptyState extends StatelessWidget {
             children: [
               const Icon(Icons.inventory_2_outlined, color: _green, size: 42),
               const SizedBox(height: 10),
-              const Text(
-                'No products yet',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              Text(
+                t('noProductsYet'),
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 6),
-              Text(message, textAlign: TextAlign.center),
+              Text(message ?? t('noProductsYetBody'),
+                  textAlign: TextAlign.center),
             ],
           ),
         ),

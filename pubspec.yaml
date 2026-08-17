@@ -1,7 +1,7 @@
 name: cartsense_lite
 description: CartSense Lite Android-first supermarket receipt companion.
 publish_to: none
-version: 1.0.0+16
+version: 1.0.1+17
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

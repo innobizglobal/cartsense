@@ -348,20 +348,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Use AI Enhanced Scan?'),
-        content: const Text(
-          'Your receipt photo will be sent securely to the CartSense service and OpenAI for recognition. '
-          'CartSense processes the image in memory and does not save it on the service. '
-          'You can use the private on-device reader instead at any time.',
-        ),
+        title: Text(t('useAiEnhancedScan')),
+        content: Text(t('aiConsentBody')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Not now'),
+            child: Text(t('notNow')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Agree and continue'),
+            child: Text(t('agreeContinue')),
           ),
         ],
       ),
@@ -380,10 +376,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }) async {
     if (aiEnhanced && !aiService.isConfigured) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-            'AI Enhanced Scan is not configured in this build. Private scanning is available.',
-          ),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(t('aiScanUnavailable')),
         ));
       }
       return;
@@ -451,10 +445,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _captureLongReceipt({bool reconcileAfterScan = false}) async {
     if (!aiService.isConfigured) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-            'AI Enhanced Scan is not configured in this build. Private scanning is available.',
-          ),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(t('aiScanUnavailable')),
         ));
       }
       return;
@@ -573,10 +565,8 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
     if (!mounted) return;
     if (plannedItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-          'Bill scanned and saved. Add products to Shopping Assistant before checkout to reconcile.',
-        ),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(t('billSavedPlanFirst')),
       ));
       await _open(receipt);
       return;
@@ -602,7 +592,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(
-        'Checkout reconciled: ${result.matches.length} bought, ${result.missing.length} still on your list, ${result.unplanned.length} extra.',
+        '${t('checkoutChecked')}: ${result.matches.length} ${t('bought')}, ${result.missing.length} ${t('stillOnList')}, ${result.unplanned.length} ${t('extra')}.',
       ),
     ));
   }
@@ -617,30 +607,28 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: const Text(
-                'How do you want to scan?',
-                style: TextStyle(fontWeight: FontWeight.w900),
+              title: Text(
+                t('howScanBill'),
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
-              subtitle: const Text(
-                'Choose the easiest option for your bill.',
-              ),
+              subtitle: Text(t('chooseEasiestBillOption')),
             ),
             ListTile(
               leading: const Icon(Icons.camera_alt_outlined),
-              title: const Text('Take photo of bill'),
-              subtitle: const Text('For a normal grocery bill'),
+              title: Text(t('takePhotoOfBill')),
+              subtitle: Text(t('normalGroceryBill')),
               onTap: () => Navigator.pop(context, 'ai_camera'),
             ),
             ListTile(
               leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('Long bill / multiple photos'),
-              subtitle: const Text('For 30–40 item grocery bills'),
+              title: Text(t('longBillManyPhotos')),
+              subtitle: Text(t('forLongGroceryBills')),
               onTap: () => Navigator.pop(context, 'ai_long'),
             ),
             ListTile(
               leading: const Icon(Icons.add_photo_alternate_outlined),
-              title: const Text('Choose from gallery'),
-              subtitle: const Text('Use an existing bill photo'),
+              title: Text(t('chooseFromGallery')),
+              subtitle: Text(t('existingBillPhoto')),
               onTap: () => Navigator.pop(context, 'ai_gallery'),
             ),
           ],

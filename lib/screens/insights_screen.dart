@@ -101,24 +101,24 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final save = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Monthly grocery budget'),
+        title: Text(t('monthlyBudget')),
         content: TextField(
           controller: controller,
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             prefixText: '₹ ',
-            hintText: 'For example 10000',
+            hintText: t('budgetExample'),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(t('cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Save budget'),
+            child: Text(t('saveBudget')),
           ),
         ],
       ),
@@ -135,8 +135,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   Future<void> _showReportExportOptions() async {
     if (_receipts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Save a bill first, then CartSense can export a report.'),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(t('saveBillFirstExport')),
       ));
       return;
     }
@@ -147,41 +147,41 @@ class _InsightsScreenState extends State<InsightsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ListTile(
+            ListTile(
               title: Text(
-                'Export reports',
-                style: TextStyle(fontWeight: FontWeight.w900),
+                t('exportReports'),
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
-              subtitle: Text('Choose the format you want to share or save.'),
+              subtitle: Text(t('chooseReportFormat')),
             ),
             ListTile(
               leading: const Icon(Icons.table_chart_outlined),
-              title: const Text('CSV report'),
-              subtitle: const Text('Open in Excel or Google Sheets'),
+              title: Text(t('csvReport')),
+              subtitle: Text(t('excelSheets')),
               onTap: () => Navigator.pop(context, 'csv'),
             ),
             ListTile(
               leading: const Icon(Icons.picture_as_pdf_outlined),
-              title: const Text('Monthly PDF report'),
-              subtitle: const Text('Readable summary for sharing'),
+              title: Text(t('monthlyPdfReport')),
+              subtitle: Text(t('readableSummary')),
               onTap: () => Navigator.pop(context, 'pdf'),
             ),
             ListTile(
               leading: const Icon(Icons.chat_outlined),
-              title: const Text('WhatsApp summary'),
-              subtitle: const Text('Short message with totals and categories'),
+              title: Text(t('whatsappSummary')),
+              subtitle: Text(t('shortTotalsCategories')),
               onTap: () => Navigator.pop(context, 'text'),
             ),
             ListTile(
               leading: const Icon(Icons.bar_chart_outlined),
-              title: const Text('Category chart image'),
-              subtitle: const Text('Share category spend as an image file'),
+              title: Text(t('categoryChartImage')),
+              subtitle: Text(t('shareCategoryImage')),
               onTap: () => Navigator.pop(context, 'chart'),
             ),
             ListTile(
               leading: const Icon(Icons.archive_outlined),
-              title: const Text('Full export bundle'),
-              subtitle: const Text('Reports plus CartSense backup'),
+              title: Text(t('fullExportBundle')),
+              subtitle: Text(t('reportsPlusBackup')),
               onTap: () => Navigator.pop(context, 'bundle'),
             ),
           ],

@@ -54,6 +54,8 @@ class _ShoppingReconciliationScreenState
     if (mounted) setState(() => languageCode = language.code);
   }
 
+  String t(String key) => appText(languageCode, key);
+
   double get plannedEstimate => widget.plannedItems.fold(
         0,
         (total, item) => total + item.estimatedTotal,
@@ -89,17 +91,18 @@ class _ShoppingReconciliationScreenState
         child: ListView(
           shrinkWrap: true,
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
               child: Text(
-                'What did you buy for this product?',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                t('whatBoughtProduct'),
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
               ),
             ),
             ListTile(
               leading: const Icon(Icons.remove_shopping_cart_outlined),
-              title: const Text('Not purchased'),
-              subtitle: const Text('Keep it on the shopping list'),
+              title: Text(t('notPurchased')),
+              subtitle: Text(t('keepShoppingList')),
               selected: current == null,
               onTap: () => Navigator.pop(context, -1),
             ),
@@ -110,7 +113,7 @@ class _ShoppingReconciliationScreenState
                 leading: const Icon(Icons.receipt_long_outlined),
                 title: Text(item.name),
                 subtitle: Text(
-                  '${_quantity(item.quantity)} × ₹${item.unitPrice.toStringAsFixed(2)} · ${item.category}',
+                  '${_quantity(item.quantity)} × ₹${item.unitPrice.toStringAsFixed(2)} · ${categoryText(languageCode, item.category)}',
                 ),
                 trailing: Text(
                   '₹${item.total.toStringAsFixed(2)}',
@@ -158,7 +161,7 @@ class _ShoppingReconciliationScreenState
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: _ivory,
-        appBar: AppBar(title: const Text('Review this trip')),
+        appBar: AppBar(title: Text(t('reviewThisTrip'))),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 120),
           children: [
@@ -184,19 +187,19 @@ class _ShoppingReconciliationScreenState
                       children: [
                         Expanded(
                           child: _amount(
-                            'Planned estimate',
+                            t('plannedEstimate'),
                             plannedEstimate,
                             Colors.white,
                           ),
                         ),
                         Expanded(
-                          child: _amount('Bill total', billTotal, _lime),
+                          child: _amount(t('billTotal'), billTotal, _lime),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      '${assignments.length} matched · $missingCount still needed · ${unplannedRows.length} unplanned',
+                      '${assignments.length} ${t('matched')} · $missingCount ${t('stillNeeded')} · ${unplannedRows.length} ${t('unplanned')}',
                       style: const TextStyle(color: Colors.white70),
                     ),
                   ],
@@ -204,18 +207,18 @@ class _ShoppingReconciliationScreenState
               ),
             ),
             const SizedBox(height: 12),
-            const Card(
+            Card(
               color: CartSenseColors.surfaceMuted,
               child: Padding(
-                padding: EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.auto_awesome, color: _green),
-                    SizedBox(width: 10),
+                    const Icon(Icons.auto_awesome, color: _green),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'We matched your saved list with this receipt. Check the suggestions before finishing.',
+                        t('checkSuggestions'),
                       ),
                     ),
                   ],
@@ -223,11 +226,11 @@ class _ShoppingReconciliationScreenState
               ),
             ),
             const SizedBox(height: 18),
-            _sectionTitle(Icons.checklist, 'Your planned products'),
+            _sectionTitle(Icons.checklist, t('plannedProducts')),
             ...widget.plannedItems.map(_plannedCard),
             if (unplannedRows.isNotEmpty) ...[
               const SizedBox(height: 20),
-              _sectionTitle(Icons.add_shopping_cart, 'Unplanned purchases'),
+              _sectionTitle(Icons.add_shopping_cart, t('unplannedPurchases')),
               ...unplannedRows.map((index) {
                 final item = widget.receipt.items[index];
                 return Card(
@@ -272,8 +275,8 @@ class _ShoppingReconciliationScreenState
                       : const Icon(Icons.done_all),
                   label: Text(
                     finishing
-                        ? 'Finishing trip…'
-                        : 'Finish trip · keep $missingCount on list',
+                        ? t('finishingTrip')
+                        : '${t('finishTrip')} · ${t('keepOnList')} $missingCount',
                   ),
                 ),
               ),
@@ -307,10 +310,10 @@ class _ShoppingReconciliationScreenState
     final priceMessage = purchased == null || planned.expectedUnitPrice <= 0
         ? null
         : difference.abs() < .01
-            ? 'price as expected'
+            ? t('priceExpected')
             : difference > 0
-                ? '₹${difference.abs().toStringAsFixed(2)} over estimate'
-                : '₹${difference.abs().toStringAsFixed(2)} under estimate';
+                ? '₹${difference.abs().toStringAsFixed(2)} ${t('overEstimate')}'
+                : '₹${difference.abs().toStringAsFixed(2)} ${t('underEstimate')}';
     return Card(
       color: purchased == null
           ? CartSenseColors.warning
@@ -333,13 +336,13 @@ class _ShoppingReconciliationScreenState
         ),
         subtitle: Text(
           purchased == null
-              ? 'Not found on this bill · remains on your list'
-              : 'Matched: ${purchased.name}\n₹${purchased.total.toStringAsFixed(2)}${priceMessage == null ? '' : ' · $priceMessage'} · ${(confidence * 100).round()}% match',
+              ? '${t('notFoundBill')} · ${t('keepOnList')}'
+              : '${t('matchedLabel')}: ${purchased.name}\n₹${purchased.total.toStringAsFixed(2)}${priceMessage == null ? '' : ' · $priceMessage'} · ${(confidence * 100).round()}% ${t('match')}',
         ),
         isThreeLine: purchased != null,
         trailing: TextButton(
           onPressed: () => _changeMatch(planned),
-          child: const Text('Change'),
+          child: Text(t('change')),
         ),
       ),
     );
