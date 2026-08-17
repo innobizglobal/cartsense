@@ -21,12 +21,14 @@ class InsightsScreen extends StatefulWidget {
     this.activeShoppingCount = 0,
     this.onScan,
     this.onOpenShoppingList,
+    this.onOpenBills,
   });
 
   final List<Receipt> receipts;
   final int activeShoppingCount;
   final VoidCallback? onScan;
   final VoidCallback? onOpenShoppingList;
+  final VoidCallback? onOpenBills;
 
   @override
   State<InsightsScreen> createState() => _InsightsScreenState();
@@ -615,16 +617,18 @@ class _InsightsScreenState extends State<InsightsScreen> {
         ],
       ),
       bottomNavigationBar: CartSenseFooterNav(
-        selectedIndex: 3,
+        selectedIndex: 4,
         activeShoppingCount: widget.activeShoppingCount,
         languageCode: language.code,
         onDestinationSelected: (index) {
           if (index == 0) {
             Navigator.of(context).popUntil((route) => route.isFirst);
           } else if (index == 1) {
-            widget.onScan?.call();
-          } else if (index == 2) {
             widget.onOpenShoppingList?.call();
+          } else if (index == 2) {
+            widget.onScan?.call();
+          } else if (index == 3) {
+            widget.onOpenBills?.call();
           }
         },
       ),

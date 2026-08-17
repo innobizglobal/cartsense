@@ -1,4 +1,8 @@
+import { searchMemoryPrices } from "./fmcg-analytics";
+
 export type PriceProviderId =
+  | "receipt"
+  | "shelf"
   | "demo"
   | "bigbasket"
   | "jiomart"
@@ -45,6 +49,8 @@ export interface PriceSearchResponse {
 type FetchLike = typeof fetch;
 
 const providerLabels: Record<PriceProviderId, string> = {
+  receipt: "Saved receipt prices",
+  shelf: "Shelf prices",
   demo: "CartSense demo prices",
   bigbasket: "BigBasket",
   jiomart: "JioMart",
@@ -53,8 +59,10 @@ const providerLabels: Record<PriceProviderId, string> = {
   zepto: "Zepto",
 };
 
-const supportedProviders: PriceProviderId[] = ["demo", "bigbasket"];
+const supportedProviders: PriceProviderId[] = ["receipt", "shelf", "demo", "bigbasket"];
 const allKnownProviders = new Set<PriceProviderId>([
+  "receipt",
+  "shelf",
   "demo",
   "bigbasket",
   "jiomart",
@@ -98,7 +106,7 @@ export function normalizePriceSearchInput(input: unknown): PriceSearchInput {
         typeof provider === "string" && allKnownProviders.has(provider as PriceProviderId),
       )
     : undefined;
-  const providers = requestedProviders?.length ? requestedProviders : ["demo", "bigbasket"];
+  const providers = requestedProviders?.length ? requestedProviders : ["receipt", "shelf", "demo", "bigbasket"];
   const pincode = String(value.pincode ?? "").replace(/\D/g, "").slice(0, 6) || undefined;
   const parsedLimit = Number(value.limit ?? 12);
   const limit = Math.min(30, Math.max(1, Number.isFinite(parsedLimit) ? parsedLimit : 12));
@@ -282,6 +290,23 @@ async function bigBasketSearch(input: PriceSearchInput, fetcher: FetchLike): Pro
 }
 
 async function providerSearch(provider: PriceProviderId, input: PriceSearchInput, fetcher: FetchLike): Promise<PriceOffer[]> {
+  if (provider === "receipt" || provider === "shelf") {
+    return searchMemoryPrices(input.query, input.limit ?? 12)
+      .filter((event) => event.source === provider)
+      .map((event) => addUnitPrice({
+        provider,
+        providerLabel: providerLabels[provider],
+        productName: event.productName,
+        brand: event.brand,
+        mrp: event.mrp,
+        sellingPrice: event.sellingPrice,
+        currency: "INR",
+        availability: "unknown",
+        confidence: event.confidence,
+        lastCheckedAt: event.uploadedAt,
+        source: "cache",
+      }));
+  }
   if (provider === "demo") return demoSearch(input);
   if (provider === "bigbasket") return bigBasketSearch(input, fetcher);
   return [];

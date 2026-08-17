@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'cloud_sync_service.dart';
 
 class AppLanguage {
   const AppLanguage({
@@ -46,12 +50,17 @@ class LanguageStore {
   Future<void> save(AppLanguage language) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_key, language.code);
+    unawaited(CartSenseCloudSyncService.instance.pushProfileAndSettings());
   }
 }
 
 String appText(String languageCode, String key) {
+  final supplemental = _supplementalTranslations[languageCode]?[key];
+  if (supplemental != null) return supplemental;
   final localized = _translations[languageCode]?[key];
   if (localized != null) return localized;
+  final supplementalEnglish = _supplementalTranslations['en']?[key];
+  if (supplementalEnglish != null) return supplementalEnglish;
   return _translations['en']?[key] ?? key;
 }
 
@@ -76,6 +85,277 @@ String categoryText(String languageCode, String category) {
   return key.isEmpty ? category : appText(languageCode, key);
 }
 
+const _supplementalTranslations = {
+  'en': {
+    'shopping': 'Shopping',
+    'bills': 'Bills',
+    'spend': 'Spend',
+    'skip': 'Skip',
+    'continue': 'Continue',
+    'startUsingCartSense': 'Start using CartSense',
+    'onboardScanTitle': 'Scan grocery bills',
+    'onboardScanBody':
+        'Use AI Enhanced Scan for difficult receipts, or private on-device scan when you want everything to stay on your phone.',
+    'onboardPlanTitle': 'Plan before shopping',
+    'onboardPlanBody':
+        'Create a shopping list, open Trip Mode in the store, tick items as you buy, then scan the checkout bill.',
+    'onboardLearnTitle': 'CartSense learns with you',
+    'onboardLearnBody':
+        'When you approve or correct products, CartSense remembers categories locally so future scans become smarter.',
+    'onboardPrivacyTitle': 'Your data, your control',
+    'onboardPrivacyBody':
+        'Receipts, lists, backups and product memory live on this phone unless you choose to export or share them.',
+    'setUpHousehold': 'Set up your household',
+    'householdSetupBody':
+        'CartSense uses this only on this phone to estimate monthly grocery needs. You can skip it and fill it later.',
+    'yourName': 'Your name',
+    'preferredLanguage': 'Preferred language',
+    'monthlyGroceryBudget': 'Monthly grocery budget',
+    'totalFamilyMembers': 'Total family members',
+    'male': 'Male',
+    'female': 'Female',
+    'children': 'Children',
+    'seniors': 'Seniors',
+    'myBills': 'My Bills',
+    'mySpend': 'My Spend',
+    'shoppingList': 'Shopping List',
+    'scanNow': 'Scan now',
+    'productMemory': 'Product memory',
+    'noReceiptsYet': 'No receipts yet',
+    'scanBill': 'Scan bill',
+    'saved': 'Saved',
+    'items': 'Items',
+    'searchStoreProduct': 'Search store or product',
+    'noBillsMatch': 'No bills match your search.',
+    'paid': 'Paid',
+    'viewBill': 'View bill',
+    'there': 'there',
+    'makeShoppingEasier': 'Let’s make shopping easier today.',
+    'scanYourBill': 'Scan your bill',
+    'readItemsPricesTotal':
+        'CartSense will read items, prices and total for you.',
+    'whatDoYouWant': 'What do you want to do?',
+    'planTodayItems': 'Plan today’s items',
+    'itemsToBuy': 'items to buy',
+    'viewSavedBills': 'View saved bills',
+    'billsSaved': 'bills saved',
+    'seeWhereMoneyGoes': 'See where money goes',
+    'invoiceNo': 'Invoice No',
+    'youPaid': 'You Paid',
+    'location': 'Location',
+    'youSaved': 'You Saved',
+    'yourShoppingRecord': 'Your shopping record',
+    'totalPaid': 'Total paid',
+    'noBillsSavedYet': 'No bills saved yet',
+    'scanFirstBillSaveHere':
+        'Scan your first bill. CartSense will save it here.',
+    'householdProfile': 'Household profile',
+    'householdProfileBody':
+        'This helps CartSense estimate monthly essentials. You can change it anytime.',
+    'householdProfileSaved':
+        'Household profile saved. Suggestions will improve.',
+    'monthlySuggestionsFor': 'Monthly suggestions are tuned for',
+    'peopleAtHome': 'people in your home.',
+    'addHouseholdSize':
+        'Add household size once to make monthly essentials smarter.',
+    'listOptions': 'List options',
+    'clearPurchased': 'Clear purchased',
+    'remaining': 'remaining',
+    'purchased': 'purchased',
+    'savedAutomaticallyDevice': 'Saved automatically on this device',
+    'addProductsToList': 'Add products to list',
+    'typeOneOrPasteList': 'Type one item, or paste the full grocery list.',
+    'shoppingItems': 'Shopping items',
+    'shoppingItemsHint': 'tea, coffee or tea 1, coffee 2',
+    'speakShoppingList': 'Speak shopping list',
+    'productActions': 'Product actions',
+    'reminders': 'Reminders',
+  },
+  'hi': {
+    'home': 'होम',
+    'scan': 'स्कैन',
+    'list': 'लिस्ट',
+    'insights': 'इनसाइट्स',
+    'shopping': 'खरीदारी',
+    'bills': 'बिल',
+    'spend': 'खर्च',
+    'settings': 'सेटिंग्स',
+    'account': 'खाता',
+    'skip': 'छोड़ें',
+    'continue': 'जारी रखें',
+    'startUsingCartSense': 'CartSense शुरू करें',
+    'onboardScanTitle': 'किराना बिल स्कैन करें',
+    'onboardScanBody':
+        'मुश्किल बिल के लिए AI स्कैन इस्तेमाल करें, या सब कुछ फोन पर रखना हो तो निजी स्कैन करें.',
+    'onboardPlanTitle': 'खरीदारी से पहले योजना',
+    'onboardPlanBody':
+        'शॉपिंग लिस्ट बनाएं, स्टोर में Trip Mode खोलें, सामान कार्ट में डालते समय टिक करें, फिर checkout bill स्कैन करें.',
+    'onboardLearnTitle': 'CartSense आपके साथ सीखता है',
+    'onboardLearnBody':
+        'जब आप सामान ठीक या approve करते हैं, CartSense category याद रखता है ताकि अगली scan बेहतर हो.',
+    'onboardPrivacyTitle': 'आपका डेटा, आपका नियंत्रण',
+    'onboardPrivacyBody':
+        'बिल, लिस्ट, backup और product memory इसी फोन पर रहती है जब तक आप export या share न करें.',
+    'setUpHousehold': 'परिवार सेट करें',
+    'householdSetupBody':
+        'CartSense monthly grocery needs अनुमान लगाने के लिए यह जानकारी इसी फोन पर इस्तेमाल करता है. आप इसे skip करके बाद में भर सकते हैं.',
+    'yourName': 'आपका नाम',
+    'preferredLanguage': 'पसंदीदा भाषा',
+    'monthlyGroceryBudget': 'मासिक किराना बजट',
+    'totalFamilyMembers': 'कुल परिवार सदस्य',
+    'male': 'पुरुष',
+    'female': 'महिला',
+    'children': 'बच्चे',
+    'seniors': 'वरिष्ठ',
+    'myBills': 'मेरे बिल',
+    'mySpend': 'मेरा खर्च',
+    'shoppingList': 'शॉपिंग लिस्ट',
+    'scanNow': 'अभी स्कैन करें',
+    'productMemory': 'प्रोडक्ट मेमोरी',
+    'noReceiptsYet': 'अभी कोई बिल नहीं',
+    'scanBill': 'बिल स्कैन करें',
+    'saved': 'बचत',
+    'items': 'सामान',
+    'searchStoreProduct': 'स्टोर या सामान खोजें',
+    'noBillsMatch': 'आपकी खोज से कोई बिल नहीं मिला.',
+    'paid': 'भुगतान',
+    'viewBill': 'बिल देखें',
+    'there': 'दोस्त',
+    'makeShoppingEasier': 'आज की खरीदारी आसान बनाते हैं.',
+    'scanYourBill': 'अपना बिल स्कैन करें',
+    'readItemsPricesTotal':
+        'CartSense आपके लिए सामान, कीमतें और कुल राशि पढ़ेगा.',
+    'whatDoYouWant': 'आप क्या करना चाहते हैं?',
+    'planTodayItems': 'आज की चीज़ें प्लान करें',
+    'itemsToBuy': 'सामान खरीदने हैं',
+    'viewSavedBills': 'सेव किए बिल देखें',
+    'billsSaved': 'बिल सेव',
+    'seeWhereMoneyGoes': 'पैसा कहाँ जा रहा है देखें',
+    'invoiceNo': 'बिल नंबर',
+    'youPaid': 'आपने भुगतान किया',
+    'location': 'स्थान',
+    'youSaved': 'आपने बचाया',
+    'yourShoppingRecord': 'आपकी खरीदारी का रिकॉर्ड',
+    'totalPaid': 'कुल भुगतान',
+    'noBillsSavedYet': 'अभी कोई बिल सेव नहीं है',
+    'scanFirstBillSaveHere':
+        'अपना पहला बिल स्कैन करें. CartSense उसे यहाँ सेव करेगा.',
+    'householdProfile': 'परिवार प्रोफाइल',
+    'householdProfileBody':
+        'इससे CartSense मासिक ज़रूरी सामान का अनुमान लगाता है. आप इसे कभी भी बदल सकते हैं.',
+    'householdProfileSaved': 'परिवार प्रोफाइल सेव हो गई. सुझाव बेहतर होंगे.',
+    'monthlySuggestionsFor': 'मासिक सुझाव',
+    'peopleAtHome': 'लोगों के परिवार के हिसाब से हैं.',
+    'addHouseholdSize':
+        'मासिक ज़रूरी सामान बेहतर करने के लिए परिवार का आकार जोड़ें.',
+    'listOptions': 'लिस्ट विकल्प',
+    'clearPurchased': 'खरीदा हुआ साफ करें',
+    'remaining': 'बाकी',
+    'purchased': 'खरीदा',
+    'savedAutomaticallyDevice': 'इस फोन पर अपने-आप सेव',
+    'addProductsToList': 'लिस्ट में सामान जोड़ें',
+    'typeOneOrPasteList':
+        'एक सामान टाइप करें, या पूरी किराना लिस्ट paste करें.',
+    'shoppingItems': 'शॉपिंग सामान',
+    'shoppingItemsHint': 'चाय, कॉफी या चाय 1, कॉफी 2',
+    'speakShoppingList': 'शॉपिंग लिस्ट बोलें',
+    'productActions': 'सामान विकल्प',
+    'reminders': 'रिमाइंडर',
+  },
+  'te': {
+    'home': 'హోమ్',
+    'scan': 'స్కాన్',
+    'list': 'లిస్ట్',
+    'insights': 'ఇన్‌సైట్స్',
+    'shopping': 'షాపింగ్',
+    'bills': 'బిల్లులు',
+    'spend': 'ఖర్చు',
+    'settings': 'సెట్టింగ్స్',
+    'account': 'ఖాతా',
+    'skip': 'దాటవేయి',
+    'continue': 'కొనసాగించు',
+    'startUsingCartSense': 'CartSense ప్రారంభించండి',
+    'onboardScanTitle': 'గ్రోసరీ బిల్లులు స్కాన్ చేయండి',
+    'onboardScanBody':
+        'కష్టమైన బిల్లులకు AI స్కాన్ వాడండి, లేదా అన్నీ మీ ఫోన్‌లోనే ఉండాలంటే ప్రైవేట్ స్కాన్ వాడండి.',
+    'onboardPlanTitle': 'షాపింగ్ ముందు ప్లాన్ చేయండి',
+    'onboardPlanBody':
+        'షాపింగ్ లిస్ట్ తయారు చేయండి, స్టోర్‌లో Trip Mode తెరచి, కార్ట్‌లో వేసే వస్తువులను టిక్ చేయండి, తరువాత checkout bill స్కాన్ చేయండి.',
+    'onboardLearnTitle': 'CartSense మీతో నేర్చుకుంటుంది',
+    'onboardLearnBody':
+        'మీరు వస్తువులను approve లేదా correct చేసినప్పుడు, CartSense categories గుర్తుంచుకుని తరువాత scans మెరుగుపరుస్తుంది.',
+    'onboardPrivacyTitle': 'మీ డేటా, మీ నియంత్రణ',
+    'onboardPrivacyBody':
+        'బిల్లులు, లిస్ట్‌లు, backups మరియు product memory మీరు export/share చేసే వరకు ఈ ఫోన్‌లోనే ఉంటాయి.',
+    'setUpHousehold': 'మీ కుటుంబాన్ని సెటప్ చేయండి',
+    'householdSetupBody':
+        'CartSense monthly grocery needs అంచనా వేయడానికి ఈ వివరాలను ఈ ఫోన్‌లో మాత్రమే వాడుతుంది. మీరు దాటవేసి తరువాత నింపవచ్చు.',
+    'yourName': 'మీ పేరు',
+    'preferredLanguage': 'ఇష్టమైన భాష',
+    'monthlyGroceryBudget': 'నెలవారీ గ్రోసరీ బడ్జెట్',
+    'totalFamilyMembers': 'మొత్తం కుటుంబ సభ్యులు',
+    'male': 'పురుషులు',
+    'female': 'మహిళలు',
+    'children': 'పిల్లలు',
+    'seniors': 'వృద్ధులు',
+    'myBills': 'నా బిల్లులు',
+    'mySpend': 'నా ఖర్చు',
+    'shoppingList': 'షాపింగ్ లిస్ట్',
+    'scanNow': 'ఇప్పుడు స్కాన్ చేయండి',
+    'productMemory': 'ప్రోడక్ట్ మెమరీ',
+    'noReceiptsYet': 'ఇంకా బిల్లులు లేవు',
+    'scanBill': 'బిల్ స్కాన్ చేయండి',
+    'saved': 'సేవింగ్',
+    'items': 'వస్తువులు',
+    'searchStoreProduct': 'స్టోర్ లేదా వస్తువు వెతకండి',
+    'noBillsMatch': 'మీ శోధనకు బిల్లులు లేవు.',
+    'paid': 'చెల్లించారు',
+    'viewBill': 'బిల్ చూడండి',
+    'there': 'మిత్రమా',
+    'makeShoppingEasier': 'ఈరోజు షాపింగ్‌ను సులభం చేద్దాం.',
+    'scanYourBill': 'మీ బిల్ స్కాన్ చేయండి',
+    'readItemsPricesTotal':
+        'CartSense మీ కోసం వస్తువులు, ధరలు మరియు మొత్తం చదువుతుంది.',
+    'whatDoYouWant': 'మీరు ఏమి చేయాలనుకుంటున్నారు?',
+    'planTodayItems': 'ఈరోజు వస్తువులు ప్లాన్ చేయండి',
+    'itemsToBuy': 'వస్తువులు కొనాలి',
+    'viewSavedBills': 'సేవ్ చేసిన బిల్లులు చూడండి',
+    'billsSaved': 'బిల్లులు సేవ్',
+    'seeWhereMoneyGoes': 'డబ్బు ఎక్కడ ఖర్చవుతోంది చూడండి',
+    'invoiceNo': 'బిల్ నంబర్',
+    'youPaid': 'మీరు చెల్లించారు',
+    'location': 'స్థానం',
+    'youSaved': 'మీరు సేవ్ చేసారు',
+    'yourShoppingRecord': 'మీ షాపింగ్ రికార్డు',
+    'totalPaid': 'మొత్తం చెల్లింపు',
+    'noBillsSavedYet': 'ఇంకా బిల్లులు సేవ్ కాలేదు',
+    'scanFirstBillSaveHere':
+        'మీ మొదటి బిల్ స్కాన్ చేయండి. CartSense దాన్ని ఇక్కడ సేవ్ చేస్తుంది.',
+    'householdProfile': 'కుటుంబ ప్రొఫైల్',
+    'householdProfileBody':
+        'దీనితో CartSense నెలవారీ అవసరమైన వస్తువులను అంచనా వేస్తుంది. మీరు ఎప్పుడైనా మార్చవచ్చు.',
+    'householdProfileSaved':
+        'కుటుంబ ప్రొఫైల్ సేవ్ అయింది. సూచనలు మెరుగుపడతాయి.',
+    'monthlySuggestionsFor': 'నెలవారీ సూచనలు',
+    'peopleAtHome': 'కుటుంబ సభ్యుల కోసం సరిపడేలా ఉన్నాయి.',
+    'addHouseholdSize':
+        'నెలవారీ అవసరాలను మెరుగుపరచడానికి కుటుంబ పరిమాణం జోడించండి.',
+    'listOptions': 'లిస్ట్ ఎంపికలు',
+    'clearPurchased': 'కొన్నవాటిని క్లియర్ చేయండి',
+    'remaining': 'మిగిలినవి',
+    'purchased': 'కొన్నవి',
+    'savedAutomaticallyDevice': 'ఈ ఫోన్‌లో ఆటోమేటిక్‌గా సేవ్ అయింది',
+    'addProductsToList': 'లిస్ట్‌లో వస్తువులు జోడించండి',
+    'typeOneOrPasteList':
+        'ఒక వస్తువు టైప్ చేయండి, లేదా మొత్తం గ్రోసరీ లిస్ట్ paste చేయండి.',
+    'shoppingItems': 'షాపింగ్ వస్తువులు',
+    'shoppingItemsHint': 'టీ, కాఫీ లేదా టీ 1, కాఫీ 2',
+    'speakShoppingList': 'షాపింగ్ లిస్ట్ మాట్లాడండి',
+    'productActions': 'వస్తువు ఎంపికలు',
+    'reminders': 'రిమైండర్లు',
+  },
+};
+
 const _translations = {
   'en': {
     'home': 'Home',
@@ -84,6 +364,13 @@ const _translations = {
     'insights': 'Insights',
     'settings': 'Settings',
     'account': 'Account',
+    'welcomeToCartSense': 'Welcome to CartSense',
+    'loginFirstBody':
+        'Sign in or create an account first. Then CartSense will guide you step by step.',
+    'loginFirstFooter':
+        'Simple setup now. Grocery planning, scanning and insights come next.',
+    'hello': 'Hi',
+    'readyNextTrip': 'Ready to plan, shop and save on your next grocery trip.',
     'signIn': 'Sign in',
     'signOut': 'Sign out',
     'signedIn': 'Signed in.',
@@ -125,12 +412,16 @@ const _translations = {
     'cloudSyncComing': 'Cloud sync foundation',
     'cloudSyncComingBody':
         'Login is the first step. Receipt backup and family sync come next.',
+    'cloudSyncActive': 'Cloud backup is active',
+    'cloudSyncActiveBody':
+        'Receipts, shopping list, family profile, budget and language sync quietly when you sign in.',
+    'lastSynced': 'Last synced',
     'privateDataControl': 'You control private data',
     'privateDataControlBody':
         'Receipt and price sharing can stay off until you choose to enable it.',
     'cloudLoginActive': 'Cloud login active',
     'cloudLoginActiveBody':
-        'This account can be used for backup, sync and household sharing next.',
+        'CartSense is ready to back up your data when Supabase tables are available.',
     'language': 'Language',
     'chooseLanguage': 'Choose language',
     'languageSubtitle': 'English, Hindi and Telugu support.',
@@ -338,11 +629,15 @@ const _translations = {
     'cloudSyncComing': 'क्लाउड सिंक आधार',
     'cloudSyncComingBody':
         'लॉगिन पहला कदम है. रसीद बैकअप और परिवार सिंक आगे आएगा.',
+    'cloudSyncActive': 'क्लाउड बैकअप चालू है',
+    'cloudSyncActiveBody':
+        'साइन इन रहने पर रसीदें, शॉपिंग लिस्ट, परिवार प्रोफाइल, बजट और भाषा अपने-आप सिंक होंगे.',
+    'lastSynced': 'आखिरी सिंक',
     'privateDataControl': 'निजी डेटा आपके नियंत्रण में',
     'privateDataControlBody': 'रसीद और कीमत शेयरिंग आप चाहें तभी चालू होगी.',
     'cloudLoginActive': 'क्लाउड लॉगिन सक्रिय',
     'cloudLoginActiveBody':
-        'यह खाता आगे बैकअप, सिंक और घर की शेयरिंग के लिए इस्तेमाल होगा.',
+        'Supabase टेबल उपलब्ध होने पर CartSense आपका डेटा बैकअप करने के लिए तैयार है.',
     'language': 'भाषा',
     'chooseLanguage': 'भाषा चुनें',
     'languageSubtitle': 'अंग्रेज़ी, हिन्दी और तेलुगु समर्थन.',
@@ -551,12 +846,16 @@ const _translations = {
     'cloudSyncComing': 'క్లౌడ్ సింక్ ఫౌండేషన్',
     'cloudSyncComingBody':
         'లాగిన్ మొదటి దశ. రసీదు బ్యాకప్ మరియు కుటుంబ సింక్ తరువాత వస్తాయి.',
+    'cloudSyncActive': 'క్లౌడ్ బ్యాకప్ యాక్టివ్',
+    'cloudSyncActiveBody':
+        'సైన్ ఇన్ చేసినప్పుడు రసీదులు, షాపింగ్ లిస్ట్, కుటుంబ ప్రొఫైల్, బడ్జెట్ మరియు భాష నిశ్శబ్దంగా సింక్ అవుతాయి.',
+    'lastSynced': 'చివరిగా సింక్',
     'privateDataControl': 'ప్రైవేట్ డేటా మీ నియంత్రణలో',
     'privateDataControlBody':
         'రసీదు మరియు ధర షేరింగ్ మీరు ఎంచుకున్నప్పుడు మాత్రమే ఆన్ అవుతుంది.',
     'cloudLoginActive': 'క్లౌడ్ లాగిన్ యాక్టివ్',
     'cloudLoginActiveBody':
-        'ఈ ఖాతాను తరువాత బ్యాకప్, సింక్ మరియు కుటుంబ షేరింగ్ కోసం వాడవచ్చు.',
+        'Supabase టేబుల్స్ అందుబాటులో ఉన్నప్పుడు CartSense మీ డేటాను బ్యాకప్ చేయడానికి సిద్ధంగా ఉంది.',
     'language': 'భాష',
     'chooseLanguage': 'భాష ఎంచుకోండి',
     'languageSubtitle': 'ఇంగ్లీష్, హిందీ మరియు తెలుగు మద్దతు.',

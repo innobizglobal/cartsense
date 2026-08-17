@@ -4,11 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/auth_service.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/language_store.dart';
 import '../theme/cartsense_theme.dart';
 
 class AccountScreen extends StatefulWidget {
-  const AccountScreen({super.key});
+  const AccountScreen({
+    super.key,
+    this.startupMode = false,
+    this.onSignedIn,
+  });
+
+  final bool startupMode;
+  final VoidCallback? onSignedIn;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -17,24 +25,34 @@ class AccountScreen extends StatefulWidget {
 class _AccountScreenState extends State<AccountScreen> {
   final email = TextEditingController();
   final password = TextEditingController();
-  final phone = TextEditingController(text: '+91');
-  final phoneOtp = TextEditingController();
   StreamSubscription<AuthState>? subscription;
   AppLanguage language = AppLanguage.english;
   bool busy = false;
   bool createAccount = false;
-  bool phoneOtpSent = false;
   User? user = CartSenseAuthService.instance.currentUser;
+  DateTime? lastSyncedAt;
 
   @override
   void initState() {
     super.initState();
     _loadLanguage();
+    _loadSyncStatus();
     subscription = CartSenseAuthService.instance.authStateChanges.listen(
       (event) {
-        if (mounted) setState(() => user = event.session?.user);
+        if (!mounted) return;
+        setState(() => user = event.session?.user);
+        if (event.session?.user != null) {
+          CartSenseCloudSyncService.instance.syncInBackground();
+          _loadSyncStatus();
+          widget.onSignedIn?.call();
+        }
       },
     );
+  }
+
+  Future<void> _loadSyncStatus() async {
+    final value = await CartSenseCloudSyncService.instance.lastSyncedAt();
+    if (mounted) setState(() => lastSyncedAt = value);
   }
 
   Future<void> _loadLanguage() async {
@@ -49,8 +67,6 @@ class _AccountScreenState extends State<AccountScreen> {
     subscription?.cancel();
     email.dispose();
     password.dispose();
-    phone.dispose();
-    phoneOtp.dispose();
     super.dispose();
   }
 
@@ -72,9 +88,14 @@ class _AccountScreenState extends State<AccountScreen> {
           email: email.text,
           password: password.text,
         );
+        CartSenseCloudSyncService.instance.syncInBackground();
         _message(t('signedIn'));
       }
       setState(() => user = CartSenseAuthService.instance.currentUser);
+      if (CartSenseAuthService.instance.currentUser != null) {
+        _loadSyncStatus();
+        widget.onSignedIn?.call();
+      }
     } on AuthException catch (error) {
       _message(error.message);
     } on AuthUnavailableException catch (error) {
@@ -95,51 +116,6 @@ class _AccountScreenState extends State<AccountScreen> {
     try {
       await CartSenseAuthService.instance.sendEmailOtp(email.text);
       _message(t('magicLinkSent'));
-    } on AuthException catch (error) {
-      _message(error.message);
-    } on AuthUnavailableException catch (error) {
-      _message(error.message);
-    } catch (_) {
-      _message(t('loginFailed'));
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  Future<void> _sendPhoneOtp() async {
-    if (phone.text.trim().length < 8) {
-      _message(t('enterPhone'));
-      return;
-    }
-    setState(() => busy = true);
-    try {
-      await CartSenseAuthService.instance.sendPhoneOtp(phone.text);
-      setState(() => phoneOtpSent = true);
-      _message(t('phoneOtpSent'));
-    } on AuthException catch (error) {
-      _message(error.message);
-    } on AuthUnavailableException catch (error) {
-      _message(error.message);
-    } catch (_) {
-      _message(t('loginFailed'));
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  Future<void> _verifyPhoneOtp() async {
-    if (phoneOtp.text.trim().length < 4) {
-      _message(t('enterOtp'));
-      return;
-    }
-    setState(() => busy = true);
-    try {
-      await CartSenseAuthService.instance.verifyPhoneOtp(
-        phone: phone.text,
-        token: phoneOtp.text,
-      );
-      setState(() => user = CartSenseAuthService.instance.currentUser);
-      _message(t('signedIn'));
     } on AuthException catch (error) {
       _message(error.message);
     } on AuthUnavailableException catch (error) {
@@ -187,7 +163,11 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: CartSenseColors.background,
-        appBar: AppBar(title: Text(t('account'))),
+        appBar: AppBar(
+          automaticallyImplyLeading: !widget.startupMode,
+          title:
+              Text(widget.startupMode ? t('welcomeToCartSense') : t('account')),
+        ),
         body: ListView(
           padding: const EdgeInsets.all(18),
           children: [
@@ -205,7 +185,9 @@ class _AccountScreenState extends State<AccountScreen> {
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      user == null ? t('guestMode') : t('cloudAccount'),
+                      user == null
+                          ? t('welcomeToCartSense')
+                          : t('cloudAccount'),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 24,
@@ -215,8 +197,8 @@ class _AccountScreenState extends State<AccountScreen> {
                     const SizedBox(height: 8),
                     Text(
                       user == null
-                          ? t('guestModeBody')
-                          : '${t('signedInAs')} ${user!.email ?? user!.phone ?? user!.id}',
+                          ? t('loginFirstBody')
+                          : '${t('signedInAs')} ${user!.email ?? user!.id}',
                       style: const TextStyle(color: Colors.white70),
                     ),
                   ],
@@ -241,29 +223,30 @@ class _AccountScreenState extends State<AccountScreen> {
             else
               _loginCard(),
             const SizedBox(height: 12),
-            Card(
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.phone_android_outlined),
-                    title: Text(t('guestModeAvailable')),
-                    subtitle: Text(t('guestModeAvailableBody')),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.backup_outlined),
-                    title: Text(t('cloudSyncComing')),
-                    subtitle: Text(t('cloudSyncComingBody')),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.privacy_tip_outlined),
-                    title: Text(t('privateDataControl')),
-                    subtitle: Text(t('privateDataControlBody')),
-                  ),
-                ],
+            if (!widget.startupMode)
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.phone_android_outlined),
+                      title: Text(t('guestModeAvailable')),
+                      subtitle: Text(t('guestModeAvailableBody')),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.cloud_sync_outlined),
+                      title: Text(t('cloudSyncActive')),
+                      subtitle: Text(t('cloudSyncActiveBody')),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.privacy_tip_outlined),
+                      title: Text(t('privateDataControl')),
+                      subtitle: Text(t('privateDataControlBody')),
+                    ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       );
@@ -330,50 +313,17 @@ class _AccountScreenState extends State<AccountScreen> {
                   createAccount ? t('alreadyHaveAccount') : t('newCreateOne'),
                 ),
               ),
-              const Divider(height: 28),
-              Text(
-                t('phoneOtpLogin'),
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: phone,
-                keyboardType: TextInputType.phone,
-                decoration: InputDecoration(
-                  labelText: t('phoneNumber'),
-                  prefixIcon: const Icon(Icons.phone_android_outlined),
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (phoneOtpSent)
-                TextField(
-                  controller: phoneOtp,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: t('otpCode'),
-                    prefixIcon: const Icon(Icons.password_outlined),
+              if (widget.startupMode) ...[
+                const SizedBox(height: 12),
+                Text(
+                  t('loginFirstFooter'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: CartSenseColors.textMuted,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: busy ? null : _sendPhoneOtp,
-                      child: Text(t('sendOtp')),
-                    ),
-                  ),
-                  if (phoneOtpSent) ...[
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: busy ? null : _verifyPhoneOtp,
-                        child: Text(t('verifyOtp')),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+              ],
             ],
           ),
         ),
@@ -385,7 +335,9 @@ class _AccountScreenState extends State<AccountScreen> {
             ListTile(
               leading: const Icon(Icons.verified_user_outlined),
               title: Text(t('cloudLoginActive')),
-              subtitle: Text(t('cloudLoginActiveBody')),
+              subtitle: Text(lastSyncedAt == null
+                  ? t('cloudLoginActiveBody')
+                  : '${t('lastSynced')} ${_shortSyncTime(lastSyncedAt!)}'),
             ),
             const Divider(height: 1),
             ListTile(
@@ -396,4 +348,11 @@ class _AccountScreenState extends State<AccountScreen> {
           ],
         ),
       );
+}
+
+String _shortSyncTime(DateTime value) {
+  final local = value.toLocal();
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
 }

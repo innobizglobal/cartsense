@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/receipt.dart';
 import '../models/savings_intelligence.dart';
 import '../models/shopping_item.dart';
+import 'cloud_sync_service.dart';
 import 'product_memory_store.dart';
 import 'shopping_reminder_service.dart';
 
@@ -39,6 +42,7 @@ class ShoppingListStore {
       _key,
       items.map((item) => item.encode()).toList(),
     );
+    unawaited(CartSenseCloudSyncService.instance.pushShoppingList(items));
   }
 
   Future<void> add(ShoppingItem item) async {

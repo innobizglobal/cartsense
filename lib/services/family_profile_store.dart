@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'cloud_sync_service.dart';
 
 class FamilyProfile {
   const FamilyProfile({
@@ -70,5 +73,6 @@ class FamilyProfileStore {
   Future<void> save(FamilyProfile profile) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_key, jsonEncode(profile.toJson()));
+    unawaited(CartSenseCloudSyncService.instance.pushProfileAndSettings());
   }
 }

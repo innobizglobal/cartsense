@@ -50,8 +50,18 @@ class ShelfPriceResult {
 class AiReceiptService {
   AiReceiptService({http.Client? client, String? endpoint})
       : client = client ?? http.Client(),
-        endpoint =
-            endpoint ?? const String.fromEnvironment('CARTSENSE_AI_ENDPOINT');
+        endpoint = endpoint ?? _configuredEndpoint;
+
+  static const _primaryEndpoint =
+      String.fromEnvironment('CARTSENSE_AI_ENDPOINT');
+  static const _legacyEndpoint = String.fromEnvironment('AI_RECEIPT_ENDPOINT');
+  static const _fallbackEndpoint =
+      'https://cartsense-ai-receipt.innoherb.chatgpt.site/api/receipt';
+  static const _configuredEndpoint = _primaryEndpoint != ''
+      ? _primaryEndpoint
+      : _legacyEndpoint != ''
+          ? _legacyEndpoint
+          : _fallbackEndpoint;
 
   static const _deviceIdKey = 'cartsense_ai_device_id';
   static const _safeUploadBytes = 12 * 1024 * 1024;

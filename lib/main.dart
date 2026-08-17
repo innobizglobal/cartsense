@@ -29,6 +29,7 @@ import 'theme/cartsense_theme.dart';
 import 'widgets/app_footer_nav.dart';
 import 'widgets/category_icon.dart';
 import 'services/auth_service.dart';
+import 'services/cloud_sync_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,46 +66,85 @@ class OnboardingGate extends StatefulWidget {
 }
 
 class _OnboardingGateState extends State<OnboardingGate> {
-  late Future<bool> completed;
+  late Future<_StartupStep> startupStep;
+  StreamSubscription? authSubscription;
 
   @override
   void initState() {
     super.initState();
-    completed = _isComplete();
-  }
-
-  Future<bool> _isComplete() async {
-    final preferences = await SharedPreferences.getInstance();
-    final onboardingComplete =
-        preferences.getBool('cartsense_onboarding_complete') == true;
-    if (!onboardingComplete) return false;
-
-    final familyPrompted =
-        preferences.getBool('cartsense_family_profile_prompted_v1') == true;
-    if (familyPrompted) return true;
-
-    final familyProfile = await FamilyProfileStore().load();
-    return familyProfile.isConfigured;
+    startupStep = _loadStartupStep();
+    authSubscription = CartSenseAuthService.instance.authStateChanges.listen(
+      (_) {
+        CartSenseCloudSyncService.instance.syncInBackground();
+        _reloadStartupStep();
+      },
+    );
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<bool>(
-        future: completed,
+  void dispose() {
+    authSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _reloadStartupStep() {
+    if (!mounted) return;
+    setState(() {
+      startupStep = _loadStartupStep();
+    });
+  }
+
+  Future<_StartupStep> _loadStartupStep() async {
+    if (CartSenseAuthService.isConfigured &&
+        CartSenseAuthService.instance.currentUser == null) {
+      return _StartupStep.login;
+    }
+    CartSenseCloudSyncService.instance.syncInBackground();
+
+    final preferences = await SharedPreferences.getInstance();
+    final guidedTourAcknowledged =
+        preferences.getBool('cartsense_guided_tour_acknowledged_v2') == true;
+    if (!guidedTourAcknowledged) return _StartupStep.onboarding;
+
+    final onboardingComplete =
+        preferences.getBool('cartsense_onboarding_complete') == true;
+    if (!onboardingComplete) return _StartupStep.onboarding;
+
+    final familyPrompted =
+        preferences.getBool('cartsense_family_profile_prompted_v1') == true;
+    if (familyPrompted) return _StartupStep.home;
+
+    final familyProfile = await FamilyProfileStore().load();
+    return familyProfile.isConfigured
+        ? _StartupStep.home
+        : _StartupStep.onboarding;
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<_StartupStep>(
+        future: startupStep,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),
             );
           }
-          if (snapshot.data == true) return const HomeScreen();
-          return OnboardingScreen(
-            onFinished: () => setState(() {
-              completed = Future.value(true);
-            }),
-          );
+          switch (snapshot.data!) {
+            case _StartupStep.login:
+              return AccountScreen(
+                startupMode: true,
+                onSignedIn: _reloadStartupStep,
+              );
+            case _StartupStep.onboarding:
+              return OnboardingScreen(onFinished: _reloadStartupStep);
+            case _StartupStep.home:
+              return const HomeScreen();
+          }
         },
       );
 }
+
+enum _StartupStep { login, onboarding, home }
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -118,6 +158,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final aiService = AiReceiptService();
   final store = ReceiptStore();
   final searchController = TextEditingController();
+  final homeScrollController = ScrollController();
+  final billsSectionKey = GlobalKey();
   List<Receipt> history = [];
   int activeShoppingCount = 0;
   bool busy = false;
@@ -127,8 +169,20 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? scanTimer;
   String query = '';
   AppLanguage language = AppLanguage.english;
+  String userName = '';
 
   SpendingInsights get monthlyInsights => SpendingInsights.forMonth(history);
+  double get totalPaid =>
+      history.fold(0, (sum, receipt) => sum + receipt.calculatedTotal);
+  double get totalSavings => history.fold(
+        0,
+        (sum, receipt) =>
+            sum +
+            receipt.billDiscount +
+            receipt.items.fold(0, (itemSum, item) => itemSum + item.discount),
+      );
+  bool get showMonthlySummaryCard => false;
+  bool get showHomeBillsPreview => false;
 
   List<Receipt> get filteredHistory {
     final needle = query.trim().toLowerCase();
@@ -147,12 +201,14 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _refresh();
     _loadLanguage();
+    _loadUserName();
   }
 
   @override
   void dispose() {
     scanTimer?.cancel();
     searchController.dispose();
+    homeScrollController.dispose();
     super.dispose();
   }
 
@@ -234,6 +290,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadLanguage() async {
     final saved = await LanguageStore().load();
     if (mounted) setState(() => language = saved);
+  }
+
+  Future<void> _loadUserName() async {
+    final preferences = await SharedPreferences.getInstance();
+    final savedName = preferences.getString('cartsense_user_name_v1') ?? '';
+    final authName = CartSenseAuthService.instance.currentUserDisplayName;
+    final displayName = savedName.trim().isNotEmpty ? savedName : authName;
+    if (mounted) setState(() => userName = displayName.trim());
   }
 
   String t(String key) => appText(language.code, key);
@@ -553,34 +617,31 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: Text(
-                t('scanCheckoutBill'),
-                style: const TextStyle(fontWeight: FontWeight.w900),
+              title: const Text(
+                'How do you want to scan?',
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
-              subtitle: Text(
-                t('compareWithList'),
+              subtitle: const Text(
+                'Choose the easiest option for your bill.',
               ),
             ),
             ListTile(
-              leading: const Icon(Icons.auto_awesome),
-              title: Text(t('aiScanCamera')),
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Take photo of bill'),
+              subtitle: const Text('For a normal grocery bill'),
               onTap: () => Navigator.pop(context, 'ai_camera'),
             ),
             ListTile(
-              leading: const Icon(Icons.add_photo_alternate_outlined),
-              title: Text(t('aiScanGallery')),
-              onTap: () => Navigator.pop(context, 'ai_gallery'),
-            ),
-            ListTile(
               leading: const Icon(Icons.receipt_long_outlined),
-              title: Text(t('aiScanLong')),
-              subtitle: Text(t('captureMultipleSections')),
+              title: const Text('Long bill / multiple photos'),
+              subtitle: const Text('For 30–40 item grocery bills'),
               onTap: () => Navigator.pop(context, 'ai_long'),
             ),
             ListTile(
-              leading: const Icon(Icons.lock_outline),
-              title: Text(t('privateDeviceScan')),
-              onTap: () => Navigator.pop(context, 'private'),
+              leading: const Icon(Icons.add_photo_alternate_outlined),
+              title: const Text('Choose from gallery'),
+              subtitle: const Text('Use an existing bill photo'),
+              onTap: () => Navigator.pop(context, 'ai_gallery'),
             ),
           ],
         ),
@@ -615,6 +676,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onScan: _showCheckoutScanOptions,
         onOpenShoppingList: _openShoppingAssistant,
         onOpenInsights: _openInsights,
+        onOpenBills: _openBills,
       ),
     ));
     await _refresh();
@@ -629,8 +691,26 @@ class _HomeScreenState extends State<HomeScreen> {
         activeShoppingCount: activeShoppingCount,
         onScan: _showCheckoutScanOptions,
         onOpenShoppingList: _openShoppingAssistant,
+        onOpenBills: _openBills,
       ),
     ));
+  }
+
+  Future<void> _openBills() async {
+    await _refresh();
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => MyBillsScreen(
+        receipts: history,
+        activeShoppingCount: activeShoppingCount,
+        onOpenReceipt: _open,
+        languageCode: language.code,
+        onScan: _showCheckoutScanOptions,
+        onOpenShoppingList: _openShoppingAssistant,
+        onOpenInsights: _openInsights,
+      ),
+    ));
+    await _refresh();
   }
 
   Future<void> _openSettings() async {
@@ -639,6 +719,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ));
     await _refresh();
     await _loadLanguage();
+    await _loadUserName();
   }
 
   Future<void> _openAccount() async {
@@ -646,6 +727,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (_) => const AccountScreen(),
     ));
     await _refresh();
+    await _loadUserName();
   }
 
   Future<void> _openProductMaster() async {
@@ -669,6 +751,7 @@ class _HomeScreenState extends State<HomeScreen> {
         receipts: history,
         activeShoppingCount: activeShoppingCount,
         onOpenInsights: _openInsights,
+        onOpenBills: _openBills,
       ),
     ));
     await _refresh();
@@ -690,7 +773,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   const Text('CartSense'),
                   Text(
-                    t('smartGroceryCompanion'),
+                    userName.isEmpty
+                        ? t('smartGroceryCompanion')
+                        : '${t('hello')} $userName',
                     style: const TextStyle(
                       color: CartSenseColors.textMuted,
                       fontSize: 11,
@@ -718,6 +803,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   _open(createDemoReceipt());
                 } else if (value == 'settings') {
                   _openSettings();
+                } else if (value == 'products') {
+                  _openProductMaster();
                 }
               },
               itemBuilder: (context) => [
@@ -738,6 +825,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.settings_outlined),
                     title: Text(t('settings')),
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'products',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.inventory_2_outlined),
+                    title: Text('Product memory'),
                   ),
                 ),
                 PopupMenuItem(
@@ -768,17 +863,37 @@ class _HomeScreenState extends State<HomeScreen> {
               )
             : SafeArea(
                 child: ListView(
+                  controller: homeScrollController,
                   padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
                   children: [
+                    _CommercialGreetingCard(
+                      userName: userName,
+                      totalPaid: totalPaid,
+                      totalSavings: totalSavings,
+                      billCount: history.length,
+                      languageCode: language.code,
+                    ),
+                    const SizedBox(height: 14),
                     Container(
-                      padding: const EdgeInsets.all(22),
+                      padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [CartSenseColors.primaryDark, green],
+                          colors: [
+                            Color(0xFF064A72),
+                            CartSenseColors.primaryDark,
+                            green,
+                          ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(30),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x33145A43),
+                            blurRadius: 22,
+                            offset: Offset(0, 12),
+                          ),
+                        ],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -792,7 +907,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      t('scanGroceryReceipt'),
+                                      t('scanYourBill'),
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 22,
@@ -802,7 +917,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      t('saveProductsPrices'),
+                                      t('readItemsPricesTotal'),
                                       style: const TextStyle(
                                         color: Colors.white70,
                                         height: 1.35,
@@ -814,6 +929,21 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                           const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              _HeroPill(
+                                icon: Icons.savings_outlined,
+                                label:
+                                    '${t('saved')} ₹${totalSavings.toStringAsFixed(0)}',
+                              ),
+                              const SizedBox(width: 8),
+                              _HeroPill(
+                                icon: Icons.receipt_long_outlined,
+                                label: '${history.length} bills',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.icon(
@@ -823,27 +953,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                   padding: const EdgeInsets.all(16)),
                               onPressed: _showCheckoutScanOptions,
                               icon: const Icon(Icons.document_scanner),
-                              label: Text(t('scanReceipt'),
+                              label: Text(t('scanNow'),
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w800)),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(color: Colors.white54),
-                                padding: const EdgeInsets.all(15),
-                              ),
-                              onPressed: _captureLongReceipt,
-                              icon: const Icon(Icons.receipt_long_outlined),
-                              label: Text(
-                                t('longReceiptPhotos'),
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w800),
-                              ),
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -866,39 +978,50 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 22),
-                    _HomeSectionTitle(t('yourShortcuts')),
-                    const SizedBox(height: 9),
+                    Text(
+                      t('whatDoYouWant'),
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     Row(
                       children: [
                         Expanded(
                           child: _HomeFeatureButton(
-                            icon: Icons.savings_outlined,
-                            title: t('insights'),
-                            subtitle: t('budgetPriceTrends'),
-                            onTap: _openInsights,
+                            icon: Icons.shopping_basket_outlined,
+                            title: t('shoppingList'),
+                            subtitle: activeShoppingCount == 0
+                                ? t('planTodayItems')
+                                : '$activeShoppingCount ${t('itemsToBuy')}',
+                            onTap: _openShoppingAssistant,
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: _HomeFeatureButton(
-                            icon: Icons.shopping_cart_outlined,
-                            title: t('shoppingAssistant'),
-                            subtitle: activeShoppingCount == 0
-                                ? t('planNextTrip')
-                                : '$activeShoppingCount ${t('productsToBuyCount')}',
-                            onTap: _openShoppingAssistant,
+                            icon: Icons.receipt_long_outlined,
+                            title: t('myBills'),
+                            subtitle: history.isEmpty
+                                ? t('viewSavedBills')
+                                : '${history.length} ${t('billsSaved')}',
+                            onTap: _openBills,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
                     _HomeFeatureButton(
-                      icon: Icons.inventory_2_outlined,
-                      title: t('productMaster'),
-                      subtitle: t('usualItemsBestPrices'),
-                      onTap: _openProductMaster,
+                      icon: Icons.insights_outlined,
+                      title: t('mySpend'),
+                      subtitle: monthlyInsights.billCount == 0
+                          ? t('seeWhereMoneyGoes')
+                          : 'This month ₹${monthlyInsights.total.toStringAsFixed(0)}',
+                      onTap: _openInsights,
                     ),
-                    if (monthlyInsights.billCount > 0) ...[
+                    if (showMonthlySummaryCard &&
+                        monthlyInsights.billCount > 0) ...[
                       const SizedBox(height: 18),
                       Card(
                         color: CartSenseColors.surfaceMuted,
@@ -944,14 +1067,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 26),
-                    _HomeSectionTitle(
-                      t('recentReceipts'),
-                      trailing:
-                          history.isEmpty ? null : '${history.length} saved',
-                    ),
-                    const SizedBox(height: 10),
-                    if (history.isNotEmpty) ...[
+                    if (showHomeBillsPreview) ...[
+                      const SizedBox(height: 26),
+                      _HomeSectionTitle(
+                        t('myBills'),
+                        key: billsSectionKey,
+                        trailing:
+                            history.isEmpty ? null : '${history.length} saved',
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (showHomeBillsPreview && history.isNotEmpty) ...[
                       TextField(
                         controller: searchController,
                         onChanged: (value) => setState(() => query = value),
@@ -972,22 +1098,26 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 10),
                     ],
-                    if (history.isEmpty)
+                    if (showHomeBillsPreview && history.isEmpty)
                       _HomeEmptyState(
                         languageCode: language.code,
                         onScan: _showCheckoutScanOptions,
                         onPlan: _openShoppingAssistant,
                         onDemo: () => _open(createDemoReceipt()),
                       )
-                    else if (filteredHistory.isEmpty)
+                    else if (showHomeBillsPreview && filteredHistory.isEmpty)
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(20),
                           child: Text(t('noSavedBillsMatch')),
                         ),
                       )
-                    else
-                      ...filteredHistory.map((receipt) => Card(
+                    else if (showHomeBillsPreview)
+                      ...filteredHistory.map((receipt) => _BillSavingsCard(
+                                receipt: receipt,
+                                languageCode: language.code,
+                                onTap: () => _open(receipt),
+                              ) /*Card(
                             child: ListTile(
                               contentPadding: const EdgeInsets.fromLTRB(
                                 14,
@@ -1039,7 +1169,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                               ),
                             ),
-                          )),
+                          )*/
+                          ),
                   ],
                 ),
               ),
@@ -1049,10 +1180,12 @@ class _HomeScreenState extends State<HomeScreen> {
           languageCode: language.code,
           onDestinationSelected: (index) {
             if (index == 1) {
-              _showCheckoutScanOptions();
-            } else if (index == 2) {
               _openShoppingAssistant();
+            } else if (index == 2) {
+              _showCheckoutScanOptions();
             } else if (index == 3) {
+              _openBills();
+            } else if (index == 4) {
               _openInsights();
             }
           },
@@ -1698,8 +1831,102 @@ class _HeroIcon extends StatelessWidget {
       );
 }
 
+class _HeroPill extends StatelessWidget {
+  const _HeroPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class _CommercialGreetingCard extends StatelessWidget {
+  const _CommercialGreetingCard({
+    required this.userName,
+    required this.totalPaid,
+    required this.totalSavings,
+    required this.billCount,
+    required this.languageCode,
+  });
+
+  final String userName;
+  final double totalPaid;
+  final double totalSavings;
+  final int billCount;
+  final String languageCode;
+
+  String t(String key) => appText(languageCode, key);
+
+  @override
+  Widget build(BuildContext context) {
+    final greetingName = userName.isEmpty ? t('there') : userName;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: CartSenseColors.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: CartSenseColors.outline),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x140B3D2D),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: CartSenseColors.success,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Icon(
+                  Icons.waving_hand_outlined,
+                  color: CartSenseColors.primary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${t('hello')} $greetingName',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      t('makeShoppingEasier'),
+                      style: const TextStyle(
+                        color: CartSenseColors.textMuted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HomeSectionTitle extends StatelessWidget {
-  const _HomeSectionTitle(this.title, {this.trailing});
+  const _HomeSectionTitle(this.title, {super.key, this.trailing});
 
   final String title;
   final String? trailing;
@@ -1775,27 +2002,7 @@ class _HomeEmptyState extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onScan,
                 icon: const Icon(Icons.document_scanner_outlined),
-                label: Text(t('scanFirstReceipt')),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: onPlan,
-                      icon: const Icon(Icons.shopping_basket_outlined),
-                      label: Text(t('planList')),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: onDemo,
-                      icon: const Icon(Icons.science_outlined),
-                      label: Text(t('tryDemo')),
-                    ),
-                  ),
-                ],
+                label: Text(t('scanBill')),
               ),
             ],
           ),
@@ -1859,8 +2066,503 @@ class _HomeFeatureButton extends StatelessWidget {
       );
 }
 
+class _BillSavingsCard extends StatelessWidget {
+  const _BillSavingsCard({
+    required this.receipt,
+    required this.onTap,
+    this.languageCode = 'en',
+  });
+
+  final Receipt receipt;
+  final VoidCallback onTap;
+  final String languageCode;
+
+  String t(String key) => appText(languageCode, key);
+
+  double get savings =>
+      receipt.billDiscount +
+      receipt.items.fold(0, (sum, item) => sum + item.discount);
+
+  String get invoiceNo {
+    final compact = receipt.id.replaceAll(RegExp(r'[^0-9A-Za-z]'), '');
+    if (compact.length <= 8) return compact;
+    return compact.substring(compact.length - 8);
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${t('invoiceNo')}: $invoiceNo',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _shortDate(receipt.purchasedAt),
+                      style: const TextStyle(
+                        color: CartSenseColors.textMuted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${t('youPaid')}: ₹${receipt.calculatedTotal.toStringAsFixed(2)} (${receipt.items.length} ${t('items')})',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${t('location')}: ${receipt.store}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: CartSenseColors.textMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 13,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: CartSenseColors.accent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '${t('youSaved')} ₹${savings.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          color: CartSenseColors.primaryDark,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      t('viewBill'),
+                      style: const TextStyle(
+                        color: Color(0xFFD46524),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      size: 14,
+                      color: Color(0xFFD46524),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
 String _shortDate(DateTime date) =>
     '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+
+class MyBillsScreen extends StatefulWidget {
+  const MyBillsScreen({
+    super.key,
+    required this.receipts,
+    required this.activeShoppingCount,
+    required this.onOpenReceipt,
+    this.languageCode = 'en',
+    this.onScan,
+    this.onOpenShoppingList,
+    this.onOpenInsights,
+  });
+
+  final List<Receipt> receipts;
+  final int activeShoppingCount;
+  final Future<void> Function(Receipt receipt) onOpenReceipt;
+  final String languageCode;
+  final VoidCallback? onScan;
+  final VoidCallback? onOpenShoppingList;
+  final VoidCallback? onOpenInsights;
+
+  @override
+  State<MyBillsScreen> createState() => _MyBillsScreenState();
+}
+
+class _MyBillsScreenState extends State<MyBillsScreen> {
+  final searchController = TextEditingController();
+  String query = '';
+
+  String t(String key) => appText(widget.languageCode, key);
+
+  List<Receipt> get filteredReceipts {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return widget.receipts;
+    return widget.receipts
+        .where((receipt) =>
+            receipt.store.toLowerCase().contains(needle) ||
+            receipt.items.any((item) =>
+                item.name.toLowerCase().contains(needle) ||
+                item.category.toLowerCase().contains(needle)))
+        .toList();
+  }
+
+  double get totalPaid => widget.receipts.fold(
+        0,
+        (sum, receipt) => sum + receipt.calculatedTotal,
+      );
+
+  double get totalSavings => widget.receipts.fold(
+        0,
+        (sum, receipt) =>
+            sum +
+            receipt.billDiscount +
+            receipt.items.fold(0, (itemSum, item) => itemSum + item.discount),
+      );
+
+  int get totalItems => widget.receipts.fold(
+        0,
+        (sum, receipt) => sum + receipt.items.length,
+      );
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: Text(t('myBills')),
+          actions: [
+            IconButton(
+              tooltip: t('scanBill'),
+              onPressed: widget.onScan,
+              icon: const Icon(Icons.document_scanner_outlined),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+            children: [
+              _BillsCelebrationCard(
+                totalPaid: totalPaid,
+                totalSavings: totalSavings,
+                billCount: widget.receipts.length,
+                itemCount: totalItems,
+                languageCode: widget.languageCode,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: searchController,
+                onChanged: (value) => setState(() => query = value),
+                decoration: InputDecoration(
+                  hintText: t('searchStoreProduct'),
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: t('clearSearch'),
+                          onPressed: () {
+                            searchController.clear();
+                            setState(() => query = '');
+                          },
+                          icon: const Icon(Icons.close),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Icon(Icons.receipt_long_outlined, color: green),
+                  const SizedBox(width: 8),
+                  Text(
+                    filteredReceipts.isEmpty
+                        ? t('savedBills')
+                        : '${filteredReceipts.length} ${t('savedBills')}',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (widget.receipts.isEmpty)
+                _BillsEmptyCard(
+                  onScan: widget.onScan,
+                  languageCode: widget.languageCode,
+                )
+              else if (filteredReceipts.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(t('noBillsMatch')),
+                  ),
+                )
+              else
+                ...filteredReceipts.map(
+                  (receipt) => _BillSavingsCard(
+                    receipt: receipt,
+                    languageCode: widget.languageCode,
+                    onTap: () => widget.onOpenReceipt(receipt),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        bottomNavigationBar: CartSenseFooterNav(
+          selectedIndex: 3,
+          activeShoppingCount: widget.activeShoppingCount,
+          languageCode: widget.languageCode,
+          onDestinationSelected: (index) {
+            if (index == 0) {
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            } else if (index == 1) {
+              widget.onOpenShoppingList?.call();
+            } else if (index == 2) {
+              widget.onScan?.call();
+            } else if (index == 4) {
+              widget.onOpenInsights?.call();
+            }
+          },
+        ),
+      );
+}
+
+class _BillsCelebrationCard extends StatelessWidget {
+  const _BillsCelebrationCard({
+    required this.totalPaid,
+    required this.totalSavings,
+    required this.billCount,
+    required this.itemCount,
+    required this.languageCode,
+  });
+
+  final double totalPaid;
+  final double totalSavings;
+  final int billCount;
+  final int itemCount;
+  final String languageCode;
+
+  String t(String key) => appText(languageCode, key);
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF8A3D), Color(0xFFFFC166)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33D46524),
+              blurRadius: 20,
+              offset: Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .92),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.wallet_giftcard_outlined,
+                      color: Color(0xFFD46524), size: 18),
+                  const SizedBox(width: 6),
+                  Text(
+                    t('yourShoppingRecord'),
+                    style: const TextStyle(
+                      color: Color(0xFFD46524),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              t('totalPaid'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Text(
+              '₹${totalPaid.toStringAsFixed(0)}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 36,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _ColorMetricTile(
+                    label: t('saved'),
+                    value: '₹${totalSavings.toStringAsFixed(0)}',
+                    icon: Icons.savings_outlined,
+                    color: CartSenseColors.success,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _ColorMetricTile(
+                    label: t('bills'),
+                    value: '$billCount',
+                    icon: Icons.receipt_long_outlined,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _ColorMetricTile(
+                    label: t('items'),
+                    value: '$itemCount',
+                    icon: Icons.shopping_basket_outlined,
+                    color: const Color(0xFFFFF4D8),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+}
+
+class _ColorMetricTile extends StatelessWidget {
+  const _ColorMetricTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: CartSenseColors.primary, size: 18),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+            Text(
+              label,
+              style: const TextStyle(
+                color: CartSenseColors.textMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
+class _BillsEmptyCard extends StatelessWidget {
+  const _BillsEmptyCard({
+    this.onScan,
+    required this.languageCode,
+  });
+
+  final VoidCallback? onScan;
+  final String languageCode;
+
+  String t(String key) => appText(languageCode, key);
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: CartSenseColors.success,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: const Icon(
+                  Icons.receipt_long_outlined,
+                  color: green,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                t('noBillsSavedYet'),
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                t('scanFirstBillSaveHere'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: CartSenseColors.textMuted),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onScan,
+                icon: const Icon(Icons.document_scanner_outlined),
+                label: Text(t('scanBill')),
+              ),
+            ],
+          ),
+        ),
+      );
+}
 
 class ReceiptScreen extends StatefulWidget {
   const ReceiptScreen({
@@ -1871,6 +2573,7 @@ class ReceiptScreen extends StatefulWidget {
     this.onScan,
     this.onOpenShoppingList,
     this.onOpenInsights,
+    this.onOpenBills,
   });
   final Receipt receipt;
   final List<Receipt> history;
@@ -1878,6 +2581,7 @@ class ReceiptScreen extends StatefulWidget {
   final VoidCallback? onScan;
   final VoidCallback? onOpenShoppingList;
   final VoidCallback? onOpenInsights;
+  final VoidCallback? onOpenBills;
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
 }
@@ -2302,31 +3006,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: receipt.confidentlyReconciled
-                    ? CartSenseColors.success
-                    : CartSenseColors.warning,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(children: [
-                Icon(
-                    receipt.confidentlyReconciled
-                        ? Icons.verified_outlined
-                        : Icons.warning_amber_rounded,
-                    color: green),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: Text(
-                        receipt.confidentlyReconciled
-                            ? 'Receipt looks good'
-                            : receipt.reconciled
-                                ? 'Total matches · review highlighted products'
-                                : 'Totals differ by ₹${receipt.difference.abs().toStringAsFixed(2)}',
-                        style: const TextStyle(fontWeight: FontWeight.w800))),
-              ]),
-            ),
+            _receiptResultHero(),
             const SizedBox(height: 14),
             _receiptStatsCard(),
             const SizedBox(height: 8),
@@ -2518,21 +3198,120 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           ],
         ),
         bottomNavigationBar: CartSenseFooterNav(
-          selectedIndex: 1,
+          selectedIndex: 3,
           activeShoppingCount: widget.activeShoppingCount,
           onDestinationSelected: (index) {
             if (index == 0) {
               Navigator.of(context).popUntil((route) => route.isFirst);
             } else if (index == 1) {
-              widget.onScan?.call();
-            } else if (index == 2) {
               widget.onOpenShoppingList?.call();
-            } else if (index == 3) {
+            } else if (index == 2) {
+              widget.onScan?.call();
+            } else if (index == 4) {
               widget.onOpenInsights?.call();
             }
           },
         ),
       );
+
+  Widget _receiptResultHero() {
+    final isClean = receipt.confidentlyReconciled;
+    final needsReview = receipt.reviewItemCount > 0;
+    final statusText = isClean
+        ? 'Bill read successfully'
+        : receipt.reconciled
+            ? 'Bill total matches'
+            : 'Please check the bill total';
+    final helperText = isClean
+        ? 'Store, products and total look ready to save.'
+        : needsReview
+            ? '${receipt.reviewItemCount} products need a quick review before final save.'
+            : 'The printed and calculated totals differ by ₹${receipt.difference.abs().toStringAsFixed(2)}.';
+    return Card(
+      color: isClean ? CartSenseColors.success : CartSenseColors.warning,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .72),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(
+                    isClean
+                        ? Icons.verified_outlined
+                        : Icons.fact_check_outlined,
+                    color: green,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        statusText,
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        helperText,
+                        style: const TextStyle(
+                          color: CartSenseColors.textMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Chip(
+                  avatar: const Icon(Icons.storefront_outlined, size: 18),
+                  label: Text(
+                    receipt.store.trim().isEmpty
+                        ? 'Store not found'
+                        : receipt.store,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Chip(
+                  avatar: const Icon(Icons.receipt_long_outlined, size: 18),
+                  label: Text('${receipt.items.length} products'),
+                ),
+                Chip(
+                  avatar: const Icon(Icons.payments_outlined, size: 18),
+                  label: Text('₹${receipt.printedTotal.toStringAsFixed(2)}'),
+                ),
+              ],
+            ),
+            if (needsReview) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _reviewNextItem,
+                icon: const Icon(Icons.manage_search_outlined),
+                label: const Text('Review highlighted products'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _receiptStatsCard() => Card(
         color: CartSenseColors.surface,

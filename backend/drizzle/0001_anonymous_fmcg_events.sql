@@ -1,0 +1,21 @@
+CREATE TABLE `anonymous_product_events` (
+	`event_id` text NOT NULL,
+	`receipt_hash` text NOT NULL,
+	`source` text NOT NULL,
+	`product_name` text NOT NULL,
+	`normalized_product_name` text NOT NULL,
+	`brand` text NOT NULL,
+	`category` text NOT NULL,
+	`store_name` text NOT NULL,
+	`month` text NOT NULL,
+	`quantity` integer NOT NULL,
+	`unit_price_paise` integer NOT NULL,
+	`selling_price_paise` integer NOT NULL,
+	`mrp_paise` integer,
+	`line_total_paise` integer NOT NULL,
+	`confidence_pct` integer NOT NULL,
+	`uploaded_at` text NOT NULL,
+	`pincode` text,
+	`city` text,
+	PRIMARY KEY(`event_id`)
+);

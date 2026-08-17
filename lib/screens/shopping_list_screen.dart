@@ -15,7 +15,6 @@ import '../services/price_intelligence_api.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
 import '../services/voice_input_service.dart';
-import 'product_master_screen.dart';
 import '../theme/cartsense_theme.dart';
 import '../widgets/app_footer_nav.dart';
 import '../widgets/category_icon.dart';
@@ -30,11 +29,13 @@ class ShoppingListScreen extends StatefulWidget {
     required this.receipts,
     this.activeShoppingCount = 0,
     this.onOpenInsights,
+    this.onOpenBills,
   });
 
   final List<Receipt> receipts;
   final int activeShoppingCount;
   final VoidCallback? onOpenInsights;
+  final VoidCallback? onOpenBills;
 
   @override
   State<ShoppingListScreen> createState() => _ShoppingListScreenState();
@@ -50,6 +51,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   double monthlyBudget = 0;
   FamilyProfile familyProfile = FamilyProfile.empty;
   String languageCode = 'en';
+  String quickAddStatus = '';
+  bool listeningShoppingList = false;
 
   late final ProductCatalog catalog =
       ProductCatalog.fromReceipts(widget.receipts);
@@ -109,8 +112,113 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
   String t(String key) => appText(languageCode, key);
 
+  Future<void> _editFamilyProfile() async {
+    final members = TextEditingController(
+        text: familyProfile.members > 0 ? '${familyProfile.members}' : '');
+    final male = TextEditingController(
+        text: familyProfile.male > 0 ? '${familyProfile.male}' : '');
+    final female = TextEditingController(
+        text: familyProfile.female > 0 ? '${familyProfile.female}' : '');
+    final children = TextEditingController(
+        text: familyProfile.children > 0 ? '${familyProfile.children}' : '');
+    final seniors = TextEditingController(
+        text: familyProfile.seniors > 0 ? '${familyProfile.seniors}' : '');
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(t('householdProfile')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                t('householdProfileBody'),
+              ),
+              TextField(
+                controller: members,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(labelText: t('totalFamilyMembers')),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: male,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(labelText: t('male')),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: female,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(labelText: t('female')),
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: children,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(labelText: t('children')),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: seniors,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(labelText: t('seniors')),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(t('save')),
+          ),
+        ],
+      ),
+    );
+    if (saved == true) {
+      final profile = FamilyProfile(
+        members: (int.tryParse(members.text.trim()) ?? 0).clamp(0, 30),
+        male: (int.tryParse(male.text.trim()) ?? 0).clamp(0, 30),
+        female: (int.tryParse(female.text.trim()) ?? 0).clamp(0, 30),
+        children: (int.tryParse(children.text.trim()) ?? 0).clamp(0, 30),
+        seniors: (int.tryParse(seniors.text.trim()) ?? 0).clamp(0, 30),
+      );
+      await FamilyProfileStore().save(profile);
+      if (!mounted) return;
+      setState(() => familyProfile = profile);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(t('householdProfileSaved')),
+      ));
+    }
+    members.dispose();
+    male.dispose();
+    female.dispose();
+    children.dispose();
+    seniors.dispose();
+  }
+
   void _search(String value) {
-    setState(() => searchResults = catalog.search(value));
+    setState(() {
+      searchResults = catalog.search(value);
+      quickAddStatus = '';
+    });
   }
 
   Future<void> _openEditor({
@@ -118,6 +226,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     CatalogProduct? product,
     FrequentProduct? frequent,
     String initialName = '',
+    bool autoScanShelf = false,
   }) async {
     final frequentProduct = frequent == null
         ? null
@@ -138,6 +247,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         existing: existing,
         initialProduct: product ?? frequentProduct,
         initialName: initialName,
+        autoScanShelf: autoScanShelf,
       ),
     );
     if (edited == null) return;
@@ -196,6 +306,167 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         createdAt: DateTime.now(),
       );
 
+  ShoppingItem _itemFromTypedName(String productName, {double? quantity}) {
+    final cleanName = productName.trim();
+    final exact = catalog.exactMatch(cleanName);
+    final suggestions =
+        exact == null ? catalog.search(cleanName, limit: 1) : [];
+    final product =
+        exact ?? (suggestions.isNotEmpty ? suggestions.first : null);
+    final expectedPrice = product?.latestUnitPrice ?? 0.0;
+    return ShoppingItem(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      name: cleanName,
+      quantity: (quantity ?? _quickQuantity).clamp(.01, 999).toDouble(),
+      category: product?.category ?? GroceryCategory.infer(cleanName),
+      expectedUnitPrice: expectedPrice,
+      bestUnitPrice: product?.bestUnitPrice ?? expectedPrice,
+      bestStore: product?.bestStore ?? '',
+      latestStore: product?.latestStore ?? '',
+      note: product == null ? 'Price will be learned from receipt scan.' : '',
+      createdAt: DateTime.now(),
+    );
+  }
+
+  double get _quickQuantity => 1;
+
+  Future<void> _addTypedQuick() async {
+    FocusScope.of(context).unfocus();
+    final value = queryController.text.trim();
+    if (value.isEmpty) return;
+    if (_isBulkEntry(value)) {
+      await _addManyFromText(value);
+      return;
+    }
+    await _addQuick(_itemFromTypedName(value));
+  }
+
+  Future<void> _listenForShoppingList() async {
+    if (listeningShoppingList) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      listeningShoppingList = true;
+      quickAddStatus = 'Listening… say milk two, tea one, oil one.';
+    });
+    try {
+      final spoken = await VoiceInputService().listen(
+        languageCode: languageCode,
+      );
+      if (spoken == null || !mounted) return;
+      final normalized = _normalizeSpokenShoppingList(spoken);
+      queryController.text = normalized;
+      queryController.selection = TextSelection.collapsed(
+        offset: queryController.text.length,
+      );
+      _search(normalized);
+      setState(() {
+        quickAddStatus =
+            'Heard: $normalized. Check once, then tap Add to list.';
+      });
+    } on VoiceInputException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error.message),
+      ));
+      setState(() => quickAddStatus = '');
+    } finally {
+      if (mounted) setState(() => listeningShoppingList = false);
+    }
+  }
+
+  String _normalizeSpokenShoppingList(String spoken) {
+    final text = spoken
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(RegExp(r'\b(and|और|మరియు)\b', caseSensitive: false), ',')
+        .replaceAll(RegExp(r'\bcomma\b', caseSensitive: false), ',');
+    return text
+        .split(RegExp(r'[,;]+'))
+        .map(_normalizeSpokenQuantity)
+        .where((entry) => entry.isNotEmpty)
+        .join(', ');
+  }
+
+  String _normalizeSpokenQuantity(String entry) {
+    final words = entry.trim().split(RegExp(r'\s+'));
+    if (words.isEmpty) return '';
+    final last = words.last.toLowerCase();
+    final numberWords = <String, String>{
+      'one': '1',
+      'two': '2',
+      'three': '3',
+      'four': '4',
+      'five': '5',
+      'six': '6',
+      'seven': '7',
+      'eight': '8',
+      'nine': '9',
+      'ten': '10',
+      'एक': '1',
+      'दो': '2',
+      'तीन': '3',
+      'चार': '4',
+      'पांच': '5',
+      'ఒకటి': '1',
+      'రెండు': '2',
+      'మూడు': '3',
+      'నాలుగు': '4',
+      'ఐదు': '5',
+    };
+    final normalizedLast = numberWords[last] ?? last;
+    if (normalizedLast != last) {
+      return [...words.take(words.length - 1), normalizedLast].join(' ');
+    }
+    return entry.trim();
+  }
+
+  Future<void> _addManyFromText(String value) async {
+    final entries = _splitShoppingEntries(value)
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (entries.isEmpty) return;
+    final addedItems = <ShoppingItem>[];
+    for (final entry in entries) {
+      final parsed = _parseQuickEntry(entry);
+      if (parsed.name.isEmpty) continue;
+      final item = _itemFromTypedName(parsed.name, quantity: parsed.qty);
+      _mergeItemLocally(item);
+      await store.add(item);
+      addedItems.add(item);
+    }
+    if (addedItems.isEmpty) return;
+    queryController.clear();
+    if (!mounted) return;
+    setState(() {
+      searchResults = [];
+      quickAddStatus = '${addedItems.length} products added to your list.';
+    });
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${addedItems.length} products added to your list.'),
+    ));
+  }
+
+  bool _isBulkEntry(String value) => _splitShoppingEntries(value).length > 1;
+
+  List<String> _splitShoppingEntries(String value) => value
+      .split(RegExp(r'[\n,;]+|\.\s+'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+
+  int _bulkPreviewCount(String value) => _splitShoppingEntries(value).length;
+
+  ({String name, double qty}) _parseQuickEntry(String entry) {
+    final match = RegExp(r'^(.*?)(?:\s+([0-9]+(?:\.[0-9]+)?))?$')
+        .firstMatch(entry.trim());
+    final name = (match?.group(1) ?? entry).trim();
+    final qty = double.tryParse(match?.group(2) ?? '') ?? 1;
+    return (name: name, qty: qty.clamp(.01, 999).toDouble());
+  }
+
   ShoppingItem _itemFromFrequent(FrequentProduct product) => ShoppingItem(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         name: product.name,
@@ -210,14 +481,47 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       );
 
   Future<void> _addQuick(ShoppingItem item) async {
+    FocusScope.of(context).unfocus();
+    _mergeItemLocally(item);
     await store.add(item);
-    await _load();
     queryController.clear();
     if (!mounted) return;
-    setState(() => searchResults = []);
+    setState(() {
+      searchResults = [];
+      quickAddStatus = '${item.name} added to your list.';
+    });
+    await _load();
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('${item.name} added to your shopping list.'),
+      content: Text('${item.name} added to your list.'),
     ));
+  }
+
+  void _mergeItemLocally(ShoppingItem item) {
+    if (!mounted) return;
+    setState(() {
+      final key = normalizedProductName(item.name);
+      final index = items.indexWhere(
+        (value) => normalizedProductName(value.name) == key,
+      );
+      if (index >= 0) {
+        final current = items[index];
+        current.quantity =
+            current.checked ? item.quantity : current.quantity + item.quantity;
+        current.checked = false;
+        current.completedAt = null;
+        if (item.category != GroceryCategory.other) {
+          current.category = item.category;
+        }
+        if (item.expectedUnitPrice > 0) {
+          current.expectedUnitPrice = item.expectedUnitPrice;
+        }
+        if (item.bestUnitPrice > 0) current.bestUnitPrice = item.bestUnitPrice;
+        if (item.bestStore.isNotEmpty) current.bestStore = item.bestStore;
+      } else {
+        items = [...items, item];
+      }
+    });
   }
 
   Future<void> _addMonthlyEssentials(List<ShoppingItem> suggestions) async {
@@ -258,12 +562,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       if (!monthlyStapleCategories.contains(product.category)) continue;
       products.putIfAbsent(product.key, () => product);
     }
-    final scale = familyProfile.isConfigured ? familyProfile.householdScale : 1;
+    final scale =
+        familyProfile.isConfigured ? familyProfile.householdScale : 1.0;
     return products.values.take(8).map((product) {
-      final quantity =
-          scale >= 6 && product.category != GroceryCategory.sanitaryCare
-              ? 2.0
-              : 1.0;
+      final quantity = _suggestedMonthlyQuantity(product.category, scale);
       return ShoppingItem(
         id: 'monthly-${DateTime.now().microsecondsSinceEpoch}-${product.key}',
         name: product.name,
@@ -282,40 +584,22 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     }).toList();
   }
 
-  Future<void> _addFromPreviousBills() async {
-    final alreadyPlanned = items
-        .where((item) => !item.checked)
-        .map((item) => normalizedProductName(item.name))
-        .toSet();
-    final products = catalog.products
-        .where((product) => !alreadyPlanned.contains(product.key))
-        .take(120)
-        .toList();
-    if (products.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Scan and save a bill first, then products appear here.'),
-      ));
-      return;
+  double _suggestedMonthlyQuantity(String category, double scale) {
+    if (!familyProfile.isConfigured) return 1;
+    if (category == GroceryCategory.sanitaryCare) {
+      return 1;
     }
-    final selected = await showModalBottomSheet<List<CatalogProduct>>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => _PreviousBillProductPicker(
-        products: products,
-        languageCode: languageCode,
-      ),
-    );
-    if (selected == null || selected.isEmpty) return;
-    for (final product in selected) {
-      await store.add(_itemFromProduct(product));
+    if (category == GroceryCategory.babyCare) {
+      return 1;
     }
-    await _load();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('${selected.length} products added from previous bills.'),
-    ));
+    if (category == GroceryCategory.cookingOils ||
+        category == GroceryCategory.pantry ||
+        category == GroceryCategory.dairy) {
+      if (scale >= 7) return 3;
+      if (scale >= 4) return 2;
+    }
+    if (category == GroceryCategory.teaCoffee && scale >= 5) return 2;
+    return 1;
   }
 
   Future<void> _toggle(ShoppingItem item, bool checked) async {
@@ -389,18 +673,6 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     if (scanNow == true && mounted) Navigator.pop(context, true);
   }
 
-  Future<void> _openProductMaster() async {
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ProductMasterScreen(
-        receipts: widget.receipts,
-        activeShoppingCount: activeItems.length,
-        onOpenShoppingList: () {},
-        onOpenInsights: widget.onOpenInsights,
-      ),
-    ));
-    await _load();
-  }
-
   Map<String, List<ShoppingItem>> get _storePlan {
     final plan = <String, List<ShoppingItem>>{};
     for (final item in activeItems) {
@@ -436,9 +708,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     final dueReminders = activeItems
         .where((item) => item.isReminderDue(DateTime.now()))
         .toList();
-    final recognizedCategory = queryController.text.trim().isEmpty
+    final queryText = queryController.text.trim();
+    final isBulkEntry = _isBulkEntry(queryText);
+    final recognizedCategory = queryText.isEmpty || isBulkEntry
         ? null
-        : GroceryCategory.infer(queryController.text);
+        : GroceryCategory.infer(queryText);
     final monthSpend = intelligence.currentMonthTotal;
     final projectedMonthSpend = monthSpend + estimatedTotal;
     final budgetRemaining =
@@ -448,6 +722,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         .toList();
     final priceWatch = _priceWatchItems();
     final monthlyEssentials = _monthlyEssentials();
+    final familySuggestionText = familyProfile.isConfigured
+        ? '${t('monthlySuggestionsFor')} ${familyProfile.members} ${t('peopleAtHome')}'
+        : t('addHouseholdSize');
 
     return Scaffold(
       backgroundColor: _ivory,
@@ -455,28 +732,23 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         title: Text(t('shoppingAssistant')),
         actions: [
           IconButton(
-            tooltip: 'Product master',
-            onPressed: _openProductMaster,
-            icon: const Icon(Icons.inventory_2_outlined),
-          ),
-          IconButton(
-            tooltip: 'Share list',
+            tooltip: t('shareList'),
             onPressed: activeItems.isEmpty ? null : _shareList,
             icon: const Icon(Icons.share_outlined),
           ),
           if (items.any((item) => item.checked))
             PopupMenuButton<String>(
-              tooltip: 'List options',
+              tooltip: t('listOptions'),
               onSelected: (value) {
                 if (value == 'clear') _removeChecked();
               },
-              itemBuilder: (context) => const [
+              itemBuilder: (context) => [
                 PopupMenuItem(
                   value: 'clear',
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.cleaning_services_outlined),
-                    title: Text('Clear purchased'),
+                    leading: const Icon(Icons.cleaning_services_outlined),
+                    title: Text(t('clearPurchased')),
                   ),
                 ),
               ],
@@ -510,18 +782,18 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                 ),
                               ),
                               Text(
-                                '${activeItems.length} remaining · ${items.where((item) => item.checked).length} purchased',
+                                '${activeItems.length} ${t('remaining')} · ${items.where((item) => item.checked).length} ${t('purchased')}',
                                 style: const TextStyle(color: Colors.white70),
                               ),
                               const SizedBox(height: 4),
-                              const Row(
+                              Row(
                                 children: [
-                                  Icon(Icons.cloud_done_outlined,
+                                  const Icon(Icons.cloud_done_outlined,
                                       size: 16, color: _lime),
-                                  SizedBox(width: 5),
+                                  const SizedBox(width: 5),
                                   Text(
-                                    'Saved automatically on this device',
-                                    style: TextStyle(
+                                    t('savedAutomaticallyDevice'),
+                                    style: const TextStyle(
                                       color: Colors.white70,
                                       fontSize: 12,
                                     ),
@@ -532,8 +804,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                 const SizedBox(height: 8),
                                 Text(
                                   budgetRemaining >= 0
-                                      ? 'After this trip: â‚¹${budgetRemaining.toStringAsFixed(0)} monthly budget left'
-                                      : 'After this trip: â‚¹${budgetRemaining.abs().toStringAsFixed(0)} over monthly budget',
+                                      ? 'After this trip: ₹${budgetRemaining.toStringAsFixed(0)} monthly budget left'
+                                      : 'After this trip: ₹${budgetRemaining.abs().toStringAsFixed(0)} over monthly budget',
                                   style: TextStyle(
                                     color: budgetRemaining >= 0
                                         ? Colors.white70
@@ -643,6 +915,31 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   const SizedBox(height: 12),
                 ],
                 Card(
+                  color: familyProfile.isConfigured
+                      ? CartSenseColors.success
+                      : CartSenseColors.surfaceMuted,
+                  child: ListTile(
+                    onTap: _editFamilyProfile,
+                    leading: const Icon(Icons.family_restroom_outlined,
+                        color: _green),
+                    title: const Text(
+                      'Household intelligence',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    subtitle: Text(familySuggestionText),
+                    trailing: familyProfile.isConfigured
+                        ? Chip(
+                            label: Text(
+                              '${familyProfile.members} members',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          )
+                        : const Icon(Icons.chevron_right),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Card(
                   color: CartSenseColors.surfaceMuted,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -678,57 +975,146 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                TextField(
-                  controller: queryController,
-                  onChanged: _search,
-                  onSubmitted: (value) {
-                    if (value.trim().isNotEmpty) {
-                      _openEditor(initialName: value.trim());
-                    }
-                  },
-                  decoration: InputDecoration(
-                    labelText: t('addProductField'),
-                    hintText: t('addProductHint'),
-                    prefixIcon: const Icon(Icons.add_shopping_cart_outlined),
-                    suffixIcon: queryController.text.trim().isEmpty
-                        ? IconButton(
-                            tooltip: 'Add product',
-                            onPressed: _openEditor,
-                            icon: const Icon(Icons.add_circle_outline),
-                          )
-                        : IconButton(
-                            tooltip: 'Add this product',
-                            onPressed: () => _openEditor(
-                              initialName: queryController.text.trim(),
-                            ),
-                            icon: const Icon(Icons.add_circle, color: _green),
+                Card(
+                  color: CartSenseColors.surface,
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          t('addProductsToList'),
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
                           ),
-                    border: const OutlineInputBorder(),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          t('typeOneOrPasteList'),
+                          style:
+                              const TextStyle(color: CartSenseColors.textMuted),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          key: const ValueKey('shopping_items_input'),
+                          controller: queryController,
+                          minLines: 1,
+                          maxLines: 5,
+                          onChanged: _search,
+                          onSubmitted: (_) => _addTypedQuick(),
+                          decoration: InputDecoration(
+                            labelText: t('shoppingItems'),
+                            hintText: t('shoppingItemsHint'),
+                            prefixIcon: const Icon(Icons.edit_note_outlined),
+                            border: const OutlineInputBorder(),
+                            suffixIcon: queryController.text.trim().isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: t('clearSearch'),
+                                    onPressed: () {
+                                      queryController.clear();
+                                      _search('');
+                                    },
+                                    icon: const Icon(Icons.close),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: _addTypedQuick,
+                                icon: const Icon(Icons.add),
+                                label: Text(t('addToList')),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            IconButton.filledTonal(
+                              tooltip: t('speakShoppingList'),
+                              onPressed: listeningShoppingList
+                                  ? null
+                                  : _listenForShoppingList,
+                              icon: listeningShoppingList
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.mic_outlined),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              listeningShoppingList
+                                  ? Icons.hearing_outlined
+                                  : Icons.record_voice_over_outlined,
+                              color: _green,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text(
+                                'You can type or speak your list.',
+                                style: TextStyle(
+                                  color: CartSenseColors.textMuted,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (isBulkEntry) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'CartSense will add ${_bulkPreviewCount(queryText)} products from this list.',
+                            style: const TextStyle(
+                              color: _green,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                        if (quickAddStatus.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: CartSenseColors.success,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.check_circle_outline,
+                                    color: _green, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    quickAddStatus,
+                                    style: const TextStyle(
+                                      color: _green,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: catalog.products.isEmpty
-                            ? null
-                            : _addFromPreviousBills,
-                        icon: const Icon(Icons.receipt_long_outlined),
-                        label: const Text('Add from previous bills'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _openProductMaster,
-                        icon: const Icon(Icons.inventory_2_outlined),
-                        label: const Text('All products'),
-                      ),
-                    ),
-                  ],
-                ),
-                if (recognizedCategory != null) ...[
+                if (!isBulkEntry && recognizedCategory != null) ...[
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -748,12 +1134,13 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                     ],
                   ),
                 ],
-                if (searchResults.isNotEmpty) ...[
+                if (!isBulkEntry && searchResults.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   ...searchResults.map((product) => Card(
                         margin: const EdgeInsets.only(bottom: 6),
                         child: ListTile(
-                          onTap: () => _openEditor(product: product),
+                          onTap: () => _addQuick(_itemFromProduct(product)
+                            ..quantity = _quickQuantity),
                           leading: CategoryAvatar(category: product.category),
                           title: Text(product.name,
                               style:
@@ -761,21 +1148,17 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           subtitle: Text(
                             '${product.category} · latest ₹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
                           ),
-                          trailing: product.bestStore == product.latestStore
-                              ? IconButton(
-                                  tooltip: 'Quick add',
-                                  onPressed: () =>
-                                      _addQuick(_itemFromProduct(product)),
-                                  icon: const Icon(Icons.add_circle_outline),
-                                )
-                              : Text(
-                                  'Best ₹${product.bestUnitPrice.toStringAsFixed(2)}\n${product.bestStore}',
-                                  textAlign: TextAlign.end,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
+                          trailing: IconButton(
+                            tooltip: 'Quick add',
+                            onPressed: () => _addQuick(
+                              _itemFromProduct(product)
+                                ..quantity = _quickQuantity,
+                            ),
+                            icon: const Icon(Icons.add_circle_outline),
+                          ),
                         ),
                       )),
-                ] else if (queryController.text.trim().isNotEmpty) ...[
+                ] else if (!isBulkEntry && queryText.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Card(
                     color: CartSenseColors.surfaceMuted,
@@ -786,12 +1169,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         style: TextStyle(fontWeight: FontWeight.w900),
                       ),
                       subtitle: Text(
-                        'Add "${queryController.text.trim()}" as a new product and choose its category.',
+                        'Add "${queryController.text.trim()}" now. CartSense will learn the price when you scan the receipt.',
                       ),
                       trailing: TextButton(
-                        onPressed: () => _openEditor(
-                          initialName: queryController.text.trim(),
-                        ),
+                        onPressed: _addTypedQuick,
                         child: const Text('Add'),
                       ),
                     ),
@@ -919,7 +1300,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           ),
                           subtitle: Text(_itemSubtitle(item)),
                           secondary: PopupMenuButton<String>(
-                            tooltip: 'Product actions',
+                            tooltip: t('productActions'),
                             onSelected: (value) {
                               if (value == 'edit') {
                                 _openEditor(existing: item);
@@ -927,10 +1308,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                 _delete(item);
                               }
                             },
-                            itemBuilder: (context) => const [
-                              PopupMenuItem(value: 'edit', child: Text('Edit')),
+                            itemBuilder: (context) => [
                               PopupMenuItem(
-                                  value: 'delete', child: Text('Remove')),
+                                  value: 'edit', child: Text(t('edit'))),
+                              PopupMenuItem(
+                                  value: 'delete', child: Text(t('remove'))),
                             ],
                           ),
                         ),
@@ -938,7 +1320,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                 if (dueReminders.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   _sectionTitle(
-                      Icons.notifications_active_outlined, 'Reminders'),
+                      Icons.notifications_active_outlined, t('reminders')),
                   ...dueReminders.map((item) => Card(
                         color: CartSenseColors.warning,
                         child: ListTile(
@@ -1053,15 +1435,18 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               ],
             ),
       bottomNavigationBar: CartSenseFooterNav(
-        selectedIndex: 2,
+        selectedIndex: 1,
         activeShoppingCount: activeItems.length,
         languageCode: languageCode,
         onDestinationSelected: (index) {
           if (index == 0) {
             Navigator.pop(context, false);
-          } else if (index == 1) {
+          } else if (index == 2) {
             Navigator.pop(context, true);
           } else if (index == 3) {
+            Navigator.pop(context, false);
+            widget.onOpenBills?.call();
+          } else if (index == 4) {
             Navigator.pop(context, false);
             widget.onOpenInsights?.call();
           }
@@ -1204,141 +1589,20 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 }
 
-class _PreviousBillProductPicker extends StatefulWidget {
-  const _PreviousBillProductPicker({
-    required this.products,
-    required this.languageCode,
-  });
-
-  final List<CatalogProduct> products;
-  final String languageCode;
-
-  @override
-  State<_PreviousBillProductPicker> createState() =>
-      _PreviousBillProductPickerState();
-}
-
-class _PreviousBillProductPickerState
-    extends State<_PreviousBillProductPicker> {
-  final selectedKeys = <String>{};
-  String query = '';
-
-  List<CatalogProduct> get filtered {
-    final needle = normalizedProductName(query);
-    if (needle.isEmpty) return widget.products;
-    return widget.products
-        .where((product) =>
-            product.key.contains(needle) ||
-            categoryText(widget.languageCode, product.category)
-                .toLowerCase()
-                .contains(query.toLowerCase()))
-        .toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final products = filtered;
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * .82,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Add from previous bills',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Select products you already bought before. CartSense will reuse the latest price and category.',
-                    style: TextStyle(color: CartSenseColors.textMuted),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    onChanged: (value) => setState(() => query = value),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      labelText: 'Search previous products',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: products.length,
-                itemBuilder: (context, index) {
-                  final product = products[index];
-                  final selected = selectedKeys.contains(product.key);
-                  return CheckboxListTile(
-                    value: selected,
-                    onChanged: (value) {
-                      setState(() {
-                        if (value == true) {
-                          selectedKeys.add(product.key);
-                        } else {
-                          selectedKeys.remove(product.key);
-                        }
-                      });
-                    },
-                    secondary: CategoryAvatar(category: product.category),
-                    title: Text(
-                      product.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    subtitle: Text(
-                      '${categoryText('en', product.category)} · ₹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  );
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
-              child: FilledButton.icon(
-                onPressed: selectedKeys.isEmpty
-                    ? null
-                    : () {
-                        Navigator.pop(
-                          context,
-                          widget.products
-                              .where((product) =>
-                                  selectedKeys.contains(product.key))
-                              .toList(),
-                        );
-                      },
-                icon: const Icon(Icons.playlist_add_check),
-                label: Text('Add ${selectedKeys.length} selected'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _ShoppingItemEditor extends StatefulWidget {
   const _ShoppingItemEditor({
     required this.catalog,
     this.existing,
     this.initialProduct,
     this.initialName = '',
+    this.autoScanShelf = false,
   });
 
   final ProductCatalog catalog;
   final ShoppingItem? existing;
   final CatalogProduct? initialProduct;
   final String initialName;
+  final bool autoScanShelf;
 
   @override
   State<_ShoppingItemEditor> createState() => _ShoppingItemEditorState();
@@ -1383,6 +1647,11 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
     shelfSalePrice = item?.salePrice;
     matches = widget.catalog.search(name.text, limit: 4);
     _loadLanguage();
+    if (widget.autoScanShelf) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scanShelfPrice();
+      });
+    }
   }
 
   Future<void> _loadLanguage() async {
@@ -1551,17 +1820,39 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title:
-            Text(widget.existing == null ? t('addProduct') : t('editProduct')),
-        content: SizedBox(
-          width: double.maxFinite,
+        insetPadding: const EdgeInsets.fromLTRB(14, 20, 14, 14),
+        contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                widget.existing == null ? t('addProduct') : t('editProduct'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            IconButton(
+              tooltip: t('cancel'),
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .68,
+            maxWidth: 520,
+          ),
           child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: name,
-                  autofocus: widget.existing == null,
+                  autofocus: false,
                   onChanged: _nameChanged,
                   decoration: InputDecoration(
                     labelText: t('productOrType'),
@@ -1583,6 +1874,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
+                  height: 54,
                   child: OutlinedButton.icon(
                     onPressed: scanningShelf ? null : _scanShelfPrice,
                     icon: scanningShelf
@@ -1592,9 +1884,12 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.camera_alt_outlined),
-                    label: Text(scanningShelf
-                        ? t('readingShelfPrice')
-                        : t('scanShelfPrice')),
+                    label: Text(
+                      scanningShelf
+                          ? t('readingShelfPrice')
+                          : t('scanShelfPrice'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
                 if (shelfMrp != null || shelfSalePrice != null) ...[
@@ -1618,11 +1913,31 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                 ],
                 if (name.text.trim().isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Chip(
-                      avatar: const Icon(Icons.auto_awesome, size: 17),
-                      label: Text('Recognized: $category'),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: CartSenseColors.success,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _green.withValues(alpha: .18)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_awesome, size: 18, color: _green),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Recognized: $category',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: _green,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -1661,29 +1976,40 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                       ),
                     ),
                   ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: quantity,
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        decoration: InputDecoration(labelText: t('quantity')),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final quantityField = TextField(
+                      controller: quantity,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(labelText: t('quantity')),
+                    );
+                    final priceField = TextField(
+                      controller: price,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(
+                        labelText: t('unitPrice'),
+                        prefixText: '₹ ',
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: price,
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        decoration: InputDecoration(
-                          labelText: t('unitPrice'),
-                          prefixText: '₹ ',
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+                    if (constraints.maxWidth < 330) {
+                      return Column(
+                        children: [
+                          quantityField,
+                          const SizedBox(height: 12),
+                          priceField,
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: quantityField),
+                        const SizedBox(width: 12),
+                        Expanded(child: priceField),
+                      ],
+                    );
+                  },
                 ),
                 DropdownButtonFormField<String>(
                   key: ValueKey(category),

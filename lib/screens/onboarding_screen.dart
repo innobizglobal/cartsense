@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/budget_store.dart';
 import '../services/family_profile_store.dart';
+import '../services/language_store.dart';
 import '../theme/cartsense_theme.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -14,42 +16,52 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final controller = PageController();
+  final name = TextEditingController();
+  final budget = TextEditingController();
   final members = TextEditingController();
   final male = TextEditingController();
   final female = TextEditingController();
   final children = TextEditingController();
   final seniors = TextEditingController();
+  AppLanguage language = AppLanguage.english;
   int index = 0;
 
   static const _pages = [
     _OnboardingPage(
       icon: Icons.document_scanner_outlined,
-      title: 'Scan grocery bills',
-      body:
-          'Use AI Enhanced Scan for difficult receipts, or private on-device scan when you want everything to stay on your phone.',
+      titleKey: 'onboardScanTitle',
+      bodyKey: 'onboardScanBody',
     ),
     _OnboardingPage(
       icon: Icons.local_grocery_store_outlined,
-      title: 'Plan before shopping',
-      body:
-          'Create a shopping list, open Trip Mode in the store, tick items as you buy, then scan the checkout bill.',
+      titleKey: 'onboardPlanTitle',
+      bodyKey: 'onboardPlanBody',
     ),
     _OnboardingPage(
       icon: Icons.auto_awesome,
-      title: 'CartSense learns with you',
-      body:
-          'When you approve or correct products, CartSense remembers categories locally so future scans become smarter.',
+      titleKey: 'onboardLearnTitle',
+      bodyKey: 'onboardLearnBody',
     ),
     _OnboardingPage(
       icon: Icons.lock_outline,
-      title: 'Your data, your control',
-      body:
-          'Receipts, lists, backups and product memory live on this phone unless you choose to export or share them.',
+      titleKey: 'onboardPrivacyTitle',
+      bodyKey: 'onboardPrivacyBody',
     ),
   ];
 
+  String t(String key) => appText(language.code, key);
+
   Future<void> _finish() async {
     final preferences = await SharedPreferences.getInstance();
+    final cleanName = name.text.trim();
+    if (cleanName.isNotEmpty) {
+      await preferences.setString('cartsense_user_name_v1', cleanName);
+    }
+    final monthlyBudget = double.tryParse(budget.text.trim()) ?? 0;
+    if (monthlyBudget > 0) {
+      await BudgetStore().save(monthlyBudget);
+    }
+    await LanguageStore().save(language);
     final totalMembers = int.tryParse(members.text.trim()) ?? 0;
     if (totalMembers > 0) {
       await FamilyProfileStore().save(FamilyProfile(
@@ -62,6 +74,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
     await preferences.setBool('cartsense_onboarding_complete', true);
     await preferences.setBool('cartsense_family_profile_prompted_v1', true);
+    await preferences.setBool('cartsense_guided_tour_acknowledged_v2', true);
     widget.onFinished();
   }
 
@@ -79,6 +92,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void dispose() {
     controller.dispose();
+    name.dispose();
+    budget.dispose();
     members.dispose();
     male.dispose();
     female.dispose();
@@ -121,7 +136,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                     TextButton(
                       onPressed: _finish,
-                      child: const Text('Skip'),
+                      child: Text(t('skip')),
                     ),
                   ],
                 ),
@@ -133,13 +148,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     itemBuilder: (context, pageIndex) =>
                         pageIndex == _pages.length
                             ? _FamilyProfilePage(
+                                name: name,
+                                budget: budget,
                                 members: members,
                                 male: male,
                                 female: female,
                                 children: children,
                                 seniors: seniors,
+                                language: language,
+                                onLanguageChanged: (value) =>
+                                    setState(() => language = value),
                               )
-                            : _OnboardingPageView(page: _pages[pageIndex]),
+                            : _OnboardingPageView(
+                                page: _pages[pageIndex],
+                                languageCode: language.code,
+                              ),
                   ),
                 ),
                 Row(
@@ -168,8 +191,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       : Icons.arrow_forward),
                   label: Text(
                     index == _pages.length
-                        ? 'Start using CartSense'
-                        : 'Continue',
+                        ? t('startUsingCartSense')
+                        : t('continue'),
                   ),
                 ),
               ],
@@ -182,19 +205,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 class _OnboardingPage {
   const _OnboardingPage({
     required this.icon,
-    required this.title,
-    required this.body,
+    required this.titleKey,
+    required this.bodyKey,
   });
 
   final IconData icon;
-  final String title;
-  final String body;
+  final String titleKey;
+  final String bodyKey;
 }
 
 class _OnboardingPageView extends StatelessWidget {
-  const _OnboardingPageView({required this.page});
+  const _OnboardingPageView({
+    required this.page,
+    required this.languageCode,
+  });
 
   final _OnboardingPage page;
+  final String languageCode;
+
+  String t(String key) => appText(languageCode, key);
 
   @override
   Widget build(BuildContext context) => Column(
@@ -222,7 +251,7 @@ class _OnboardingPageView extends StatelessWidget {
           ),
           const SizedBox(height: 34),
           Text(
-            page.title,
+            t(page.titleKey),
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 32,
@@ -232,7 +261,7 @@ class _OnboardingPageView extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            page.body,
+            t(page.bodyKey),
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: CartSenseColors.textMuted,
@@ -247,18 +276,26 @@ class _OnboardingPageView extends StatelessWidget {
 
 class _FamilyProfilePage extends StatelessWidget {
   const _FamilyProfilePage({
+    required this.name,
+    required this.budget,
     required this.members,
     required this.male,
     required this.female,
     required this.children,
     required this.seniors,
+    required this.language,
+    required this.onLanguageChanged,
   });
 
+  final TextEditingController name;
+  final TextEditingController budget;
   final TextEditingController members;
   final TextEditingController male;
   final TextEditingController female;
   final TextEditingController children;
   final TextEditingController seniors;
+  final AppLanguage language;
+  final ValueChanged<AppLanguage> onLanguageChanged;
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
@@ -279,8 +316,8 @@ class _FamilyProfilePage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 26),
-            const Text(
-              'Set up your household',
+            Text(
+              appText(language.code, 'setUpHousehold'),
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 30,
@@ -289,8 +326,8 @@ class _FamilyProfilePage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'CartSense uses this only on this phone to estimate monthly grocery needs. You can skip it and fill it later.',
+            Text(
+              appText(language.code, 'householdSetupBody'),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: CartSenseColors.textMuted,
@@ -300,19 +337,66 @@ class _FamilyProfilePage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            _numberField(members, 'Total family members'),
+            TextField(
+              controller: name,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                labelText: appText(language.code, 'yourName'),
+                prefixIcon: const Icon(Icons.person_outline),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<AppLanguage>(
+              initialValue: language,
+              decoration: InputDecoration(
+                labelText: appText(language.code, 'preferredLanguage'),
+                prefixIcon: const Icon(Icons.translate_outlined),
+                border: const OutlineInputBorder(),
+              ),
+              items: AppLanguage.values
+                  .map(
+                    (option) => DropdownMenuItem(
+                      value: option,
+                      child: Text(option.nativeName),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) onLanguageChanged(value);
+              },
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: budget,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: appText(language.code, 'monthlyGroceryBudget'),
+                prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _numberField(members, appText(language.code, 'totalFamilyMembers')),
             Row(
               children: [
-                Expanded(child: _numberField(male, 'Male')),
+                Expanded(
+                    child: _numberField(male, appText(language.code, 'male'))),
                 const SizedBox(width: 10),
-                Expanded(child: _numberField(female, 'Female')),
+                Expanded(
+                    child:
+                        _numberField(female, appText(language.code, 'female'))),
               ],
             ),
             Row(
               children: [
-                Expanded(child: _numberField(children, 'Children')),
+                Expanded(
+                    child: _numberField(
+                        children, appText(language.code, 'children'))),
                 const SizedBox(width: 10),
-                Expanded(child: _numberField(seniors, 'Seniors')),
+                Expanded(
+                    child: _numberField(
+                        seniors, appText(language.code, 'seniors'))),
               ],
             ),
           ],

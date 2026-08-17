@@ -24,7 +24,25 @@ class CartSenseAuthService {
 
   SupabaseClient? get _client => isConfigured ? Supabase.instance.client : null;
 
+  SupabaseClient? get client => _client;
+
   User? get currentUser => _client?.auth.currentUser;
+
+  String get currentUserDisplayName {
+    final user = currentUser;
+    if (user == null) return '';
+    final metadata = user.userMetadata ?? const <String, dynamic>{};
+    final name = (metadata['name'] ??
+            metadata['full_name'] ??
+            metadata['display_name'] ??
+            '')
+        .toString()
+        .trim();
+    if (name.isNotEmpty) return name.split(RegExp(r'\s+')).first;
+    final email = user.email ?? '';
+    if (email.contains('@')) return email.split('@').first;
+    return '';
+  }
 
   Stream<AuthState> get authStateChanges =>
       _client?.auth.onAuthStateChange ?? const Stream<AuthState>.empty();
@@ -60,23 +78,6 @@ class CartSenseAuthService {
     );
   }
 
-  Future<void> sendPhoneOtp(String phone) async {
-    final client = _requireClient();
-    await client.auth.signInWithOtp(phone: _cleanPhone(phone));
-  }
-
-  Future<AuthResponse> verifyPhoneOtp({
-    required String phone,
-    required String token,
-  }) async {
-    final client = _requireClient();
-    return client.auth.verifyOTP(
-      phone: _cleanPhone(phone),
-      token: token.trim(),
-      type: OtpType.sms,
-    );
-  }
-
   Future<bool> signInWithGoogle() async {
     final client = _requireClient();
     return client.auth.signInWithOAuth(
@@ -98,8 +99,6 @@ class CartSenseAuthService {
     }
     return client;
   }
-
-  String _cleanPhone(String phone) => phone.replaceAll(RegExp(r'\s+'), '');
 }
 
 class AuthUnavailableException implements Exception {

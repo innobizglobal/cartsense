@@ -1,23 +1,8 @@
 import { searchPrices } from "@/lib/price-intelligence";
-
-const corsHeaders = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type, x-cartsense-device",
-};
-
-function json(data: unknown, init?: ResponseInit) {
-  return Response.json(data, {
-    ...init,
-    headers: {
-      ...corsHeaders,
-      ...(init?.headers ?? {}),
-    },
-  });
-}
+import { json, options } from "@/lib/api-response";
 
 export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: corsHeaders });
+  return options();
 }
 
 export async function GET(request: Request) {

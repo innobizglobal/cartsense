@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/receipt.dart';
+import 'cloud_sync_service.dart';
 import 'price_intelligence_api.dart';
 import 'product_memory_store.dart';
 
@@ -63,6 +64,7 @@ class ReceiptStore {
       _key,
       receipts.map((item) => item.encode()).toList(),
     );
+    unawaited(CartSenseCloudSyncService.instance.pushReceipt(receipt));
     unawaited(_uploadPriceMemory(receipt));
   }
 
@@ -114,6 +116,7 @@ class ReceiptStore {
       _key,
       receipts.map((receipt) => receipt.encode()).toList(),
     );
+    unawaited(CartSenseCloudSyncService.instance.deleteReceipt(receiptId));
     if (removedImages.isNotEmpty) {
       final documents = await getApplicationDocumentsDirectory();
       final imageRoot = Directory(
