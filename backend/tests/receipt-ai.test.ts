@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { imageType, normalizeReceipt, shouldAuditReceipt } from "../lib/receipt-ai";
+import { normalizeShoppingList } from "../lib/shopping-list-ai";
 import { GET as health } from "../app/api/health/route";
 
 test("removes payment metadata and refuses a false total match", () => {
@@ -142,4 +143,45 @@ test("preserves AI grocery categories in the mobile receipt", () => {
   });
 
   assert.equal(receipt.items[0].category, "Sanitary care");
+});
+
+test("normalizes handwritten multilingual shopping lists", () => {
+  const list = normalizeShoppingList({
+    items: [
+      {
+        originalText: "ఉప్పు 1 packet",
+        name: "salt",
+        quantity: 1,
+        unitLabel: "packet",
+        language: "Telugu",
+        category: "Pantry staples",
+        confidence: 0.91,
+      },
+      {
+        originalText: "salt 2 packet",
+        name: "salt",
+        quantity: 2,
+        unitLabel: "packet",
+        language: "English",
+        category: "Pantry staples",
+        confidence: 0.84,
+      },
+      {
+        originalText: "call ramesh",
+        name: "",
+        quantity: 1,
+        unitLabel: "",
+        language: "English",
+        category: "Other",
+        confidence: 0.2,
+      },
+    ],
+    warnings: ["Second salt line was faint."],
+  });
+
+  assert.equal(list.items.length, 1);
+  assert.equal(list.items[0].name, "salt");
+  assert.equal(list.items[0].quantity, 3);
+  assert.equal(list.items[0].category, "Pantry staples");
+  assert.equal(list.warnings[0], "Second salt line was faint.");
 });

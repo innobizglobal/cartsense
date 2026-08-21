@@ -47,6 +47,75 @@ class ShelfPriceResult {
       );
 }
 
+class HandwrittenShoppingListItem {
+  const HandwrittenShoppingListItem({
+    required this.originalText,
+    required this.name,
+    required this.quantity,
+    required this.confidence,
+    this.unitLabel = '',
+    this.language = 'unknown',
+    this.category = 'Other',
+  });
+
+  final String originalText;
+  final String name;
+  final double quantity;
+  final String unitLabel;
+  final String language;
+  final String category;
+  final double confidence;
+
+  String get addText {
+    final cleanName = name.trim();
+    final cleanUnit = unitLabel.trim();
+    final quantityText = quantity == quantity.roundToDouble()
+        ? quantity.toInt().toString()
+        : quantity.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+    return [
+      cleanName,
+      quantityText,
+      if (cleanUnit.isNotEmpty) cleanUnit,
+    ].where((value) => value.trim().isNotEmpty).join(' ');
+  }
+
+  factory HandwrittenShoppingListItem.fromJson(Map<String, dynamic> json) =>
+      HandwrittenShoppingListItem(
+        originalText: json['originalText']?.toString() ?? '',
+        name: json['name']?.toString() ?? '',
+        quantity: (json['quantity'] as num?)?.toDouble() ?? 1,
+        unitLabel: json['unitLabel']?.toString() ?? '',
+        language: json['language']?.toString() ?? 'unknown',
+        category: json['category']?.toString() ?? 'Other',
+        confidence: (json['confidence'] as num?)?.toDouble() ?? .5,
+      );
+}
+
+class HandwrittenShoppingListResult {
+  const HandwrittenShoppingListResult({
+    required this.items,
+    this.warnings = const [],
+  });
+
+  final List<HandwrittenShoppingListItem> items;
+  final List<String> warnings;
+
+  factory HandwrittenShoppingListResult.fromJson(Map<String, dynamic> json) =>
+      HandwrittenShoppingListResult(
+        items: (json['items'] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map((value) => HandwrittenShoppingListItem.fromJson(
+                  Map<String, dynamic>.from(value),
+                ))
+            .where((item) => item.name.trim().isNotEmpty)
+            .toList(),
+        warnings: (json['warnings'] as List<dynamic>? ?? const [])
+            .map((value) => value.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .toList(),
+      );
+}
+
 class AiReceiptService {
   AiReceiptService({http.Client? client, String? endpoint})
       : client = client ?? http.Client(),
@@ -252,6 +321,86 @@ class AiReceiptService {
         result.salePrice == null) {
       throw const AiReceiptException(
         'Could not read a product name or price from this shelf label.',
+        code: 'AI_RESULT_INCOMPLETE',
+      );
+    }
+    return result;
+  }
+
+  Future<HandwrittenShoppingListResult> parseShoppingListPhoto(
+    File image,
+  ) async {
+    if (!isConfigured) {
+      throw const AiReceiptException(
+        'AI handwritten list scan is not configured in this build.',
+        code: 'AI_NOT_CONFIGURED',
+      );
+    }
+    final uploadImage = await _prepareUpload(image);
+    final request = http.MultipartRequest('POST', Uri.parse(endpoint));
+    request.headers.addAll({
+      'x-cartsense-device': await _deviceId(),
+      'x-cartsense-client': 'android/0.9.0',
+    });
+    request.fields['mode'] = 'shopping_list_photo';
+    request.files.add(await http.MultipartFile.fromPath(
+      'shoppingList',
+      uploadImage.path,
+      filename: 'shopping_list${_extensionFor(uploadImage.path)}',
+      contentType: _mediaTypeFor(uploadImage.path),
+    ));
+
+    late http.StreamedResponse streamed;
+    try {
+      streamed =
+          await client.send(request).timeout(const Duration(seconds: 90));
+    } on SocketException {
+      throw const AiReceiptException(
+        'No internet connection. Type or speak the shopping list for now.',
+        code: 'OFFLINE',
+      );
+    } on TimeoutException {
+      throw const AiReceiptException(
+        'The handwritten list reader took too long. Try again with a clearer photo.',
+        code: 'AI_TIMEOUT',
+      );
+    } on FormatException {
+      throw const AiReceiptException(
+        'The AI service address in this build is invalid.',
+        code: 'AI_ENDPOINT_INVALID',
+      );
+    }
+
+    final body = await streamed.stream.bytesToString();
+    Map<String, dynamic> payload;
+    try {
+      payload = Map<String, dynamic>.from(jsonDecode(body) as Map);
+    } catch (_) {
+      throw const AiReceiptException(
+        'The AI service returned an unreadable handwritten-list response.',
+        code: 'AI_RESPONSE_INVALID',
+      );
+    }
+    if (streamed.statusCode != 200) {
+      throw AiReceiptException(
+        payload['error']?.toString() ??
+            'The AI reader could not read this handwritten list.',
+        code: payload['code']?.toString(),
+      );
+    }
+    final listJson = payload['shoppingList'];
+    if (listJson is! Map) {
+      throw const AiReceiptException(
+        'The handwritten list result was incomplete. Retake the photo with the full paper visible.',
+        code: 'AI_RESULT_INVALID',
+      );
+    }
+    final result = HandwrittenShoppingListResult.fromJson(
+      Map<String, dynamic>.from(listJson),
+    );
+    if (result.items.isEmpty) {
+      throw const AiReceiptException(
+        'Could not find grocery items in this photo. Write each item on a separate line and try again.',
         code: 'AI_RESULT_INCOMPLETE',
       );
     }

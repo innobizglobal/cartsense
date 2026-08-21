@@ -54,6 +54,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   String languageCode = 'en';
   String quickAddStatus = '';
   bool listeningShoppingList = false;
+  bool scanningHandwrittenList = false;
 
   late final ProductCatalog catalog =
       ProductCatalog.fromReceipts(widget.receipts);
@@ -386,6 +387,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   Future<void> _addManyFromText(String value) async {
     final entries = smartInput.parse(value);
     if (entries.isEmpty) return;
+    await _addSmartEntries(entries);
+  }
+
+  Future<void> _addSmartEntries(List<SmartGroceryEntry> entries) async {
+    if (entries.isEmpty) return;
     final addedItems = <ShoppingItem>[];
     for (var index = 0; index < entries.length; index += 1) {
       final item = _itemFromSmartEntry(entries[index], idOffset: index);
@@ -405,6 +411,193 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${addedItems.length} products added to your list.'),
     ));
+  }
+
+  Future<void> _scanHandwrittenShoppingList() async {
+    if (scanningHandwrittenList) return;
+    FocusScope.of(context).unfocus();
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: Text(t('takePaperListPhoto')),
+                subtitle: Text(t('takePaperListPhotoBody')),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: Text(t('choosePaperListPhoto')),
+                subtitle: Text(t('choosePaperListPhotoBody')),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (source == null) return;
+
+    final photo = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 92,
+      maxWidth: 2200,
+    );
+    if (photo == null) return;
+
+    setState(() {
+      scanningHandwrittenList = true;
+      quickAddStatus = t('readingPaperList');
+    });
+    try {
+      final result =
+          await AiReceiptService().parseShoppingListPhoto(File(photo.path));
+      if (!mounted) return;
+      final selected = await _reviewHandwrittenItems(result.items);
+      if (selected == null || selected.isEmpty) {
+        if (mounted) setState(() => quickAddStatus = '');
+        return;
+      }
+      final entries = smartInput.parse(
+        selected.map((item) => item.addText).join(', '),
+      );
+      if (entries.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(t('noHandwrittenItemsFound')),
+          ));
+          setState(() => quickAddStatus = '');
+        }
+        return;
+      }
+      await _addSmartEntries(entries);
+      if (!mounted) return;
+      setState(() {
+        quickAddStatus = '${entries.length} ${t('paperItemsAdded')}';
+      });
+    } on AiReceiptException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error.message),
+      ));
+      setState(() => quickAddStatus = '');
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(t('paperListScanFailed')),
+      ));
+      setState(() => quickAddStatus = '');
+    } finally {
+      if (mounted) setState(() => scanningHandwrittenList = false);
+    }
+  }
+
+  Future<List<HandwrittenShoppingListItem>?> _reviewHandwrittenItems(
+    List<HandwrittenShoppingListItem> items,
+  ) async {
+    final selected = <int>{
+      for (var index = 0; index < items.length; index++) index
+    };
+    return showModalBottomSheet<List<HandwrittenShoppingListItem>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              18,
+              4,
+              18,
+              18 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  t('reviewPaperList'),
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  t('reviewPaperListBody'),
+                  style: const TextStyle(color: CartSenseColors.textMuted),
+                ),
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 380),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      final checked = selected.contains(index);
+                      return CheckboxListTile(
+                        value: checked,
+                        onChanged: (value) => setSheetState(() {
+                          if (value == true) {
+                            selected.add(index);
+                          } else {
+                            selected.remove(index);
+                          }
+                        }),
+                        title: Text(
+                          item.addText,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        subtitle: Text([
+                          if (item.originalText.trim().isNotEmpty)
+                            '${t('writtenAs')}: ${item.originalText.trim()}',
+                          '${t('category')}: ${categoryText(languageCode, item.category)}',
+                        ].join('\n')),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(t('cancel')),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: selected.isEmpty
+                            ? null
+                            : () => Navigator.pop(
+                                  context,
+                                  selected
+                                      .map((index) => items[index])
+                                      .toList(),
+                                ),
+                        child: Text(t('addSelectedItems')),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   bool _isBulkEntry(String value) => smartInput.parse(value).length > 1;
@@ -992,6 +1185,25 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: scanningHandwrittenList
+                                ? null
+                                : _scanHandwrittenShoppingList,
+                            icon: scanningHandwrittenList
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.draw_outlined),
+                            label: Text(t('scanHandwrittenList')),
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
@@ -1013,6 +1225,14 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          t('handwrittenListHelp'),
+                          style: const TextStyle(
+                            color: CartSenseColors.textMuted,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         if (isBulkEntry) ...[
                           const SizedBox(height: 8),

@@ -55,6 +55,8 @@ class LanguageStore {
 }
 
 String appText(String languageCode, String key) {
+  final handwrittenOverride = _handwrittenListText[languageCode]?[key];
+  if (handwrittenOverride != null) return handwrittenOverride;
   final launchOverride = _launchTextOverrides[languageCode]?[key];
   if (launchOverride != null) return launchOverride;
   final supplemental = _supplementalTranslations[languageCode]?[key];
@@ -65,6 +67,70 @@ String appText(String languageCode, String key) {
   if (supplementalEnglish != null) return supplementalEnglish;
   return _translations['en']?[key] ?? key;
 }
+
+const _handwrittenListText = {
+  'en': {
+    'scanHandwrittenList': 'Scan handwritten list',
+    'handwrittenListHelp':
+        'Wrote the list on paper? Take a photo and review items before adding.',
+    'takePaperListPhoto': 'Take paper-list photo',
+    'takePaperListPhotoBody': 'Use camera for a handwritten shopping list.',
+    'choosePaperListPhoto': 'Choose paper-list photo',
+    'choosePaperListPhotoBody': 'Use a saved photo from gallery.',
+    'readingPaperList': 'Reading your paper list...',
+    'reviewPaperList': 'Review paper list',
+    'reviewPaperListBody':
+        'CartSense translated the handwriting to shopping items. Untick anything you do not want.',
+    'writtenAs': 'Written as',
+    'category': 'Category',
+    'addSelectedItems': 'Add selected items',
+    'paperItemsAdded': 'paper-list items added.',
+    'paperListScanFailed':
+        'Could not read this paper list. Try a clearer photo or type the list.',
+    'noHandwrittenItemsFound': 'No handwritten grocery items found.',
+  },
+  'hi': {
+    'scanHandwrittenList': 'लिखी हुई लिस्ट स्कैन करें',
+    'handwrittenListHelp':
+        'कागज पर लिस्ट लिखी है? फोटो लें और जोड़ने से पहले सामान चेक करें.',
+    'takePaperListPhoto': 'पेपर लिस्ट की फोटो लें',
+    'takePaperListPhotoBody':
+        'हाथ से लिखी शॉपिंग लिस्ट के लिए कैमरा इस्तेमाल करें.',
+    'choosePaperListPhoto': 'पेपर लिस्ट फोटो चुनें',
+    'choosePaperListPhotoBody': 'गैलरी से सेव की हुई फोटो इस्तेमाल करें.',
+    'readingPaperList': 'आपकी पेपर लिस्ट पढ़ रहे हैं...',
+    'reviewPaperList': 'पेपर लिस्ट चेक करें',
+    'reviewPaperListBody':
+        'CartSense ने लिखी हुई लिस्ट को सामान में बदला है. जो नहीं चाहिए उसे untick करें.',
+    'writtenAs': 'लिखा हुआ',
+    'category': 'श्रेणी',
+    'addSelectedItems': 'चुने हुए सामान जोड़ें',
+    'paperItemsAdded': 'पेपर लिस्ट के सामान जुड़ गए.',
+    'paperListScanFailed':
+        'यह पेपर लिस्ट पढ़ नहीं पाए. साफ फोटो लें या लिस्ट टाइप करें.',
+    'noHandwrittenItemsFound': 'हाथ से लिखे किराना सामान नहीं मिले.',
+  },
+  'te': {
+    'scanHandwrittenList': 'రాసిన లిస్ట్ స్కాన్ చేయండి',
+    'handwrittenListHelp':
+        'కాగితం మీద లిస్ట్ రాశారా? ఫోటో తీసి, జోడించే ముందు వస్తువులు చూసుకోండి.',
+    'takePaperListPhoto': 'పేపర్ లిస్ట్ ఫోటో తీయండి',
+    'takePaperListPhotoBody': 'చేతిరాత షాపింగ్ లిస్ట్ కోసం కెమెరా వాడండి.',
+    'choosePaperListPhoto': 'పేపర్ లిస్ట్ ఫోటో ఎంచుకోండి',
+    'choosePaperListPhotoBody': 'గ్యాలరీలో ఉన్న ఫోటో వాడండి.',
+    'readingPaperList': 'మీ పేపర్ లిస్ట్ చదువుతున్నాం...',
+    'reviewPaperList': 'పేపర్ లిస్ట్ చూసుకోండి',
+    'reviewPaperListBody':
+        'CartSense చేతిరాతను షాపింగ్ వస్తువులుగా మార్చింది. అవసరం లేనివి untick చేయండి.',
+    'writtenAs': 'రాసింది',
+    'category': 'వర్గం',
+    'addSelectedItems': 'ఎంచుకున్నవి జోడించండి',
+    'paperItemsAdded': 'పేపర్ లిస్ట్ వస్తువులు జోడించాం.',
+    'paperListScanFailed':
+        'ఈ పేపర్ లిస్ట్ చదవలేకపోయాం. స్పష్టమైన ఫోటో తీసండి లేదా లిస్ట్ టైప్ చేయండి.',
+    'noHandwrittenItemsFound': 'చేతిరాత గ్రోసరీ వస్తువులు కనిపించలేదు.',
+  },
+};
 
 const _launchTextOverrides = {
   'en': {

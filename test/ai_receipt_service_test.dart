@@ -136,4 +136,62 @@ void main() {
     expect(receipt.items.single.name, 'TETLEY CLASSIC');
     expect(receipt.imagePath, first.path);
   });
+
+  test('AI service uploads handwritten shopping list photos', () async {
+    SharedPreferences.setMockInitialValues({});
+    final image = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}cartsense-paper-list.jpg',
+    );
+    await image.writeAsBytes([1, 2, 3, 4]);
+    addTearDown(() async {
+      if (await image.exists()) await image.delete();
+    });
+
+    final client = MockClient((request) async {
+      final body = latin1.decode(request.bodyBytes);
+      expect(body, contains('name="mode"'));
+      expect(body, contains('shopping_list_photo'));
+      expect(body, contains('name="shoppingList"'));
+      return http.Response(
+        jsonEncode({
+          'shoppingList': {
+            'items': [
+              {
+                'originalText': 'ఉప్పు 1 packet',
+                'name': 'salt',
+                'quantity': 1,
+                'unitLabel': 'packet',
+                'language': 'Telugu',
+                'category': 'Pantry staples',
+                'confidence': .91,
+              },
+              {
+                'originalText': 'साबुन dozen',
+                'name': 'soap',
+                'quantity': 12,
+                'unitLabel': 'pcs',
+                'language': 'Hindi',
+                'category': 'Household',
+                'confidence': .88,
+              },
+            ],
+            'warnings': [],
+          },
+        }),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+
+    final service = AiReceiptService(
+      client: client,
+      endpoint: 'https://example.test/api/receipt',
+    );
+    final result = await service.parseShoppingListPhoto(image);
+
+    expect(result.items, hasLength(2));
+    expect(result.items.first.name, 'salt');
+    expect(result.items.first.addText, 'salt 1 packet');
+    expect(result.items.last.quantity, 12);
+  });
 }
