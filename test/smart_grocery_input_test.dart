@@ -69,4 +69,22 @@ void main() {
     expect(entries[1].name, 'Soap');
     expect(entries[1].quantity, 12);
   });
+
+  test('classifies pasted household grocery list without Other fallbacks', () {
+    final parser = SmartGroceryInputParser(ProductCatalog.fromReceipts([]));
+
+    final entries =
+        parser.parse('tea 1, coffe 2, toor dal 1kg, grapes 1kg, surf packet 1');
+
+    expect(entries, hasLength(5));
+    expect(entries[0].category, GroceryCategory.teaCoffee);
+    expect(entries[1].name, 'Coffee');
+    expect(entries[1].category, GroceryCategory.teaCoffee);
+    expect(entries[2].category, GroceryCategory.pantry);
+    expect(entries[2].unitLabel, 'kg');
+    expect(entries[3].category, GroceryCategory.produce);
+    expect(entries[3].unitLabel, 'kg');
+    expect(entries[4].name, 'Surf Detergent');
+    expect(entries[4].category, GroceryCategory.household);
+  });
 }

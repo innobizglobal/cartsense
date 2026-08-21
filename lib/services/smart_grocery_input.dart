@@ -254,8 +254,12 @@ class SmartGroceryInputParser {
       'oil': 'oil',
       'tea powder': 'tea',
       'chai': 'tea',
+      'coffe': 'coffee',
       'namak': 'salt',
       'uppu': 'salt',
+      'surf packet': 'surf detergent',
+      'surf packets': 'surf detergent',
+      'surf': 'surf detergent',
     };
     return aliases[clean] ?? clean;
   }
@@ -282,6 +286,8 @@ class SmartGroceryInputParser {
       'pads' => 'sanitary pads napkins',
       'salt' => 'salt',
       'tea' => 'tea chai',
+      'coffee' => 'coffee',
+      'surf detergent' => 'surf detergent washing powder',
       'oil' => 'cooking oil',
       _ => query,
     };

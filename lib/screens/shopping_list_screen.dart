@@ -318,6 +318,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }) {
     final product = entry.matchedProduct;
     final expectedPrice = product?.latestUnitPrice ?? 0.0;
+    final noteParts = [
+      if (entry.unitLabel.isNotEmpty)
+        'Planned quantity: ${entry.displayQuantity}',
+      entry.note,
+    ].where((value) => value.trim().isNotEmpty).join('. ');
     return ShoppingItem(
       id: (DateTime.now().microsecondsSinceEpoch + idOffset).toString(),
       name: entry.name,
@@ -327,7 +332,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       bestUnitPrice: product?.bestUnitPrice ?? expectedPrice,
       bestStore: product?.bestStore ?? '',
       latestStore: product?.latestStore ?? '',
-      note: entry.note,
+      note: noteParts,
       createdAt: DateTime.now(),
     );
   }
@@ -779,15 +784,15 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       '',
       ...activeItems.map((item) {
         final price = item.expectedUnitPrice > 0
-            ? ' â€” about â‚¹${item.estimatedTotal.toStringAsFixed(2)}'
+            ? ' - about Rs ${item.estimatedTotal.toStringAsFixed(2)}'
             : '';
         final storeText = item.bestStore.isNotEmpty
             ? ' (best seen at ${item.bestStore})'
             : '';
-        return 'â˜ ${item.quantity.g} Ã— ${item.name}$price$storeText';
+        return '[ ] ${item.quantity.g} x ${item.name}$price$storeText';
       }),
       '',
-      'Estimated basket: â‚¹${estimatedTotal.toStringAsFixed(2)}',
+      'Estimated basket: Rs ${estimatedTotal.toStringAsFixed(2)}',
     ];
     await Share.share(
       lines.join('\n'),
@@ -1454,7 +1459,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           controlAffinity: ListTileControlAffinity.leading,
                           onChanged: (value) => _toggle(item, value == true),
                           title: Text(
-                            '${item.quantity.g} Ã— ${item.name}',
+                            '${item.quantity.g} x ${item.name}',
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
                               decoration: item.checked
@@ -1540,19 +1545,17 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                   const TextStyle(fontWeight: FontWeight.w800)),
                           subtitle: Text('${entry.value.length} products'),
                           trailing: Text(
-                            total > 0
-                                ? 'â‚¹${total.toStringAsFixed(2)}'
-                                : 'â€”',
+                            total > 0 ? 'Rs ${total.toStringAsFixed(2)}' : '-',
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                           children: entry.value
                               .map((item) => ListTile(
                                     dense: true,
                                     title: Text(
-                                        '${item.quantity.g} Ã— ${item.name}'),
+                                        '${item.quantity.g} x ${item.name}'),
                                     trailing: item.bestUnitPrice > 0
                                         ? Text(
-                                            'â‚¹${(item.quantity * item.bestUnitPrice).toStringAsFixed(2)}')
+                                            'Rs ${(item.quantity * item.bestUnitPrice).toStringAsFixed(2)}')
                                         : const Text('No price'),
                                   ))
                               .toList(),
@@ -1710,30 +1713,30 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               : 'matched as ${item.purchasedName}';
       final actual = item.actualUnitPrice == null
           ? ''
-          : ' at â‚¹${item.actualUnitPrice!.toStringAsFixed(2)}';
+          : ' at Rs ${item.actualUnitPrice!.toStringAsFixed(2)}';
       parts.add('$purchased$actual');
     }
     if (item.expectedUnitPrice > 0) {
-      parts.add('estimate â‚¹${item.estimatedTotal.toStringAsFixed(2)}');
+      parts.add('estimate Rs ${item.estimatedTotal.toStringAsFixed(2)}');
     } else {
       parts.add('price needed');
     }
     if (item.salePrice != null || item.mrp != null) {
       parts.add([
         if (item.salePrice != null)
-          'shelf sale â‚¹${item.salePrice!.toStringAsFixed(2)}',
-        if (item.mrp != null) 'MRP â‚¹${item.mrp!.toStringAsFixed(2)}',
+          'shelf sale Rs ${item.salePrice!.toStringAsFixed(2)}',
+        if (item.mrp != null) 'MRP Rs ${item.mrp!.toStringAsFixed(2)}',
       ].join(' / '));
     }
     if (item.bestStore.isNotEmpty && item.possibleSaving > 0) {
       parts.add(
-          'save â‚¹${item.possibleSaving.toStringAsFixed(2)} at ${item.bestStore}');
+          'save Rs ${item.possibleSaving.toStringAsFixed(2)} at ${item.bestStore}');
     } else if (item.bestStore.isNotEmpty) {
       parts.add('best seen at ${item.bestStore}');
     }
     if (item.remindAt != null) parts.add(_reminderText(item.remindAt!));
     if (item.note.isNotEmpty) parts.add(item.note);
-    return parts.join(' Â· ');
+    return parts.join(' - ');
   }
 
   String _shortDate(DateTime date) {
@@ -2827,7 +2830,7 @@ class _TripItemCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${item.quantity.g} Ã— ${item.name}',
+                        '${item.quantity.g} x ${item.name}',
                         style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w900,
@@ -2837,7 +2840,7 @@ class _TripItemCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        '${item.category}${item.expectedUnitPrice > 0 ? ' Â· about â‚¹${item.estimatedTotal.toStringAsFixed(2)}' : ''}',
+                        '${item.category}${item.expectedUnitPrice > 0 ? ' - about Rs ${item.estimatedTotal.toStringAsFixed(2)}' : ''}',
                         style: const TextStyle(
                           color: CartSenseColors.textMuted,
                         ),

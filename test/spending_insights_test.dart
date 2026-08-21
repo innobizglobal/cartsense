@@ -93,5 +93,8 @@ void main() {
       GroceryCategory.infer('Gold Drop Oil 1L'),
       GroceryCategory.cookingOils,
     );
+    expect(GroceryCategory.infer('coffe 200g'), GroceryCategory.teaCoffee);
+    expect(GroceryCategory.infer('grapes 1kg'), GroceryCategory.produce);
+    expect(GroceryCategory.infer('surf packet'), GroceryCategory.household);
   });
 }

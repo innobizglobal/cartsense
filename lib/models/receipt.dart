@@ -91,7 +91,7 @@ class GroceryCategory {
       return babyCare;
     }
     if (RegExp(
-            r'\b(tetley|tetely|tetly|tea|chai|tata tea|red label|taj mahal|wagh bakri|society tea|three roses|3 roses|brook bond|lipton|coffee|nescafe|bru|continental|sunrise)\b')
+            r'\b(tetley|tetely|tetly|tea|chai|tata tea|red label|taj mahal|wagh bakri|society tea|three roses|3 roses|brook bond|lipton|coffee|coffe|nescafe|bru|continental|sunrise)\b')
         .hasMatch(name)) {
       return teaCoffee;
     }
@@ -106,7 +106,7 @@ class GroceryCategory {
       return dairy;
     }
     if (RegExp(
-            r'\b(apple|banana|mango|orange|grape|guava|papaya|watermelon|tomato|onion|potato|carrot|cabbage|beans|vegetable|fruit|coriander|ginger|garlic|lemon)\b')
+            r'\b(apple|banana|mango|orange|grape|grapes|guava|papaya|watermelon|tomato|onion|potato|carrot|cabbage|beans|vegetable|vegetables|fruit|fruits|coriander|ginger|garlic|lemon)\b')
         .hasMatch(name)) {
       return produce;
     }
@@ -136,7 +136,7 @@ class GroceryCategory {
       return snacks;
     }
     if (RegExp(
-            r'\b(detergent|clean|dish|match|safe|floor|toilet|tissue|ariel|vim|comfort|surf excel|rin|harpic|lizol|phenyl|garbage bag|foil|mosquito|good knight)\b')
+            r'\b(detergent|clean|dish|match|safe|floor|toilet|tissue|ariel|vim|comfort|surf|surf excel|rin|harpic|lizol|phenyl|garbage bag|foil|mosquito|good knight)\b')
         .hasMatch(name)) {
       return household;
     }
