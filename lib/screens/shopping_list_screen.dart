@@ -14,6 +14,7 @@ import '../services/language_store.dart';
 import '../services/price_intelligence_api.dart';
 import '../services/shopping_list_store.dart';
 import '../services/shopping_reminder_service.dart';
+import '../services/smart_grocery_input.dart';
 import '../services/voice_input_service.dart';
 import '../theme/cartsense_theme.dart';
 import '../widgets/app_footer_nav.dart';
@@ -56,6 +57,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
   late final ProductCatalog catalog =
       ProductCatalog.fromReceipts(widget.receipts);
+  late final SmartGroceryInputParser smartInput =
+      SmartGroceryInputParser(catalog);
   late final SavingsIntelligence intelligence =
       SavingsIntelligence.fromReceipts(widget.receipts);
 
@@ -215,8 +218,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 
   void _search(String value) {
+    final entries = smartInput.parse(value);
+    final lookup = entries.length == 1 ? entries.first.name : value;
     setState(() {
-      searchResults = catalog.search(value);
+      searchResults = lookup.trim().isEmpty ? [] : catalog.search(lookup);
       quickAddStatus = '';
     });
   }
@@ -306,24 +311,22 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         createdAt: DateTime.now(),
       );
 
-  ShoppingItem _itemFromTypedName(String productName, {double? quantity}) {
-    final cleanName = productName.trim();
-    final exact = catalog.exactMatch(cleanName);
-    final suggestions =
-        exact == null ? catalog.search(cleanName, limit: 1) : [];
-    final product =
-        exact ?? (suggestions.isNotEmpty ? suggestions.first : null);
+  ShoppingItem _itemFromSmartEntry(
+    SmartGroceryEntry entry, {
+    required int idOffset,
+  }) {
+    final product = entry.matchedProduct;
     final expectedPrice = product?.latestUnitPrice ?? 0.0;
     return ShoppingItem(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      name: cleanName,
-      quantity: (quantity ?? _quickQuantity).clamp(.01, 999).toDouble(),
-      category: product?.category ?? GroceryCategory.infer(cleanName),
+      id: (DateTime.now().microsecondsSinceEpoch + idOffset).toString(),
+      name: entry.name,
+      quantity: entry.quantity.clamp(.01, 999).toDouble(),
+      category: product?.category ?? entry.category,
       expectedUnitPrice: expectedPrice,
       bestUnitPrice: product?.bestUnitPrice ?? expectedPrice,
       bestStore: product?.bestStore ?? '',
       latestStore: product?.latestStore ?? '',
-      note: product == null ? 'Price will be learned from receipt scan.' : '',
+      note: entry.note,
       createdAt: DateTime.now(),
     );
   }
@@ -334,11 +337,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     FocusScope.of(context).unfocus();
     final value = queryController.text.trim();
     if (value.isEmpty) return;
-    if (_isBulkEntry(value)) {
-      await _addManyFromText(value);
-      return;
-    }
-    await _addQuick(_itemFromTypedName(value));
+    await _addManyFromText(value);
   }
 
   Future<void> _listenForShoppingList() async {
@@ -346,7 +345,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     FocusScope.of(context).unfocus();
     setState(() {
       listeningShoppingList = true;
-      quickAddStatus = 'Listening… say milk two, tea one, oil one.';
+      quickAddStatus = 'Listeningâ€¦ say salt 1 packet, soaps dozen, paste.';
     });
     try {
       final spoken = await VoiceInputService().listen(
@@ -359,9 +358,15 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         offset: queryController.text.length,
       );
       _search(normalized);
+      final entries = smartInput.parse(normalized);
+      final summary = entries
+          .take(3)
+          .map((entry) => '${entry.name} ${entry.displayQuantity}')
+          .join(', ');
       setState(() {
-        quickAddStatus =
-            'Heard: $normalized. Check once, then tap Add to list.';
+        quickAddStatus = entries.isEmpty
+            ? 'Heard: $normalized. Please check once.'
+            : 'Understood ${entries.length} item${entries.length == 1 ? '' : 's'}: $summary. Tap Add to list.';
       });
     } on VoiceInputException catch (error) {
       if (!mounted) return;
@@ -375,62 +380,15 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 
   String _normalizeSpokenShoppingList(String spoken) {
-    final text = spoken
-        .trim()
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAll(RegExp(r'\b(and|और|మరియు)\b', caseSensitive: false), ',')
-        .replaceAll(RegExp(r'\bcomma\b', caseSensitive: false), ',');
-    return text
-        .split(RegExp(r'[,;]+'))
-        .map(_normalizeSpokenQuantity)
-        .where((entry) => entry.isNotEmpty)
-        .join(', ');
-  }
-
-  String _normalizeSpokenQuantity(String entry) {
-    final words = entry.trim().split(RegExp(r'\s+'));
-    if (words.isEmpty) return '';
-    final last = words.last.toLowerCase();
-    final numberWords = <String, String>{
-      'one': '1',
-      'two': '2',
-      'three': '3',
-      'four': '4',
-      'five': '5',
-      'six': '6',
-      'seven': '7',
-      'eight': '8',
-      'nine': '9',
-      'ten': '10',
-      'एक': '1',
-      'दो': '2',
-      'तीन': '3',
-      'चार': '4',
-      'पांच': '5',
-      'ఒకటి': '1',
-      'రెండు': '2',
-      'మూడు': '3',
-      'నాలుగు': '4',
-      'ఐదు': '5',
-    };
-    final normalizedLast = numberWords[last] ?? last;
-    if (normalizedLast != last) {
-      return [...words.take(words.length - 1), normalizedLast].join(' ');
-    }
-    return entry.trim();
+    return smartInput.normalizeSpeechText(spoken);
   }
 
   Future<void> _addManyFromText(String value) async {
-    final entries = _splitShoppingEntries(value)
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
+    final entries = smartInput.parse(value);
     if (entries.isEmpty) return;
     final addedItems = <ShoppingItem>[];
-    for (final entry in entries) {
-      final parsed = _parseQuickEntry(entry);
-      if (parsed.name.isEmpty) continue;
-      final item = _itemFromTypedName(parsed.name, quantity: parsed.qty);
+    for (var index = 0; index < entries.length; index += 1) {
+      final item = _itemFromSmartEntry(entries[index], idOffset: index);
       _mergeItemLocally(item);
       await store.add(item);
       addedItems.add(item);
@@ -449,23 +407,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     ));
   }
 
-  bool _isBulkEntry(String value) => _splitShoppingEntries(value).length > 1;
+  bool _isBulkEntry(String value) => smartInput.parse(value).length > 1;
 
-  List<String> _splitShoppingEntries(String value) => value
-      .split(RegExp(r'[\n,;]+|\.\s+'))
-      .map((line) => line.trim())
-      .where((line) => line.isNotEmpty)
-      .toList();
-
-  int _bulkPreviewCount(String value) => _splitShoppingEntries(value).length;
-
-  ({String name, double qty}) _parseQuickEntry(String entry) {
-    final match = RegExp(r'^(.*?)(?:\s+([0-9]+(?:\.[0-9]+)?))?$')
-        .firstMatch(entry.trim());
-    final name = (match?.group(1) ?? entry).trim();
-    final qty = double.tryParse(match?.group(2) ?? '') ?? 1;
-    return (name: name, qty: qty.clamp(.01, 999).toDouble());
-  }
+  int _bulkPreviewCount(String value) => smartInput.parse(value).length;
 
   ShoppingItem _itemFromFrequent(FrequentProduct product) => ShoppingItem(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -642,15 +586,15 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       '',
       ...activeItems.map((item) {
         final price = item.expectedUnitPrice > 0
-            ? ' — about ₹${item.estimatedTotal.toStringAsFixed(2)}'
+            ? ' â€” about â‚¹${item.estimatedTotal.toStringAsFixed(2)}'
             : '';
         final storeText = item.bestStore.isNotEmpty
             ? ' (best seen at ${item.bestStore})'
             : '';
-        return '☐ ${item.quantity.g} × ${item.name}$price$storeText';
+        return 'â˜ ${item.quantity.g} Ã— ${item.name}$price$storeText';
       }),
       '',
-      'Estimated basket: ₹${estimatedTotal.toStringAsFixed(2)}',
+      'Estimated basket: â‚¹${estimatedTotal.toStringAsFixed(2)}',
     ];
     await Share.share(
       lines.join('\n'),
@@ -774,7 +718,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                   style:
                                       const TextStyle(color: Colors.white70)),
                               Text(
-                                '₹${estimatedTotal.toStringAsFixed(2)}',
+                                'â‚¹${estimatedTotal.toStringAsFixed(2)}',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 30,
@@ -782,7 +726,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                 ),
                               ),
                               Text(
-                                '${activeItems.length} ${t('remaining')} · ${items.where((item) => item.checked).length} ${t('purchased')}',
+                                '${activeItems.length} ${t('remaining')} Â· ${items.where((item) => item.checked).length} ${t('purchased')}',
                                 style: const TextStyle(color: Colors.white70),
                               ),
                               const SizedBox(height: 4),
@@ -804,8 +748,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                 const SizedBox(height: 8),
                                 Text(
                                   budgetRemaining >= 0
-                                      ? 'After this trip: ₹${budgetRemaining.toStringAsFixed(0)} monthly budget left'
-                                      : 'After this trip: ₹${budgetRemaining.abs().toStringAsFixed(0)} over monthly budget',
+                                      ? 'After this trip: â‚¹${budgetRemaining.toStringAsFixed(0)} monthly budget left'
+                                      : 'After this trip: â‚¹${budgetRemaining.abs().toStringAsFixed(0)} over monthly budget',
                                   style: TextStyle(
                                     color: budgetRemaining >= 0
                                         ? Colors.white70
@@ -825,7 +769,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                   style:
                                       const TextStyle(color: Colors.white70)),
                               Text(
-                                '₹${possibleSaving.toStringAsFixed(2)}',
+                                'â‚¹${possibleSaving.toStringAsFixed(2)}',
                                 style: const TextStyle(
                                   color: _lime,
                                   fontSize: 20,
@@ -887,7 +831,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                             Icons.shopping_basket_outlined,
                             activeItems.isEmpty
                                 ? 'Add products to plan your next store trip.'
-                                : '${activeItems.length} products planned, about ₹${estimatedTotal.toStringAsFixed(0)}.',
+                                : '${activeItems.length} products planned, about â‚¹${estimatedTotal.toStringAsFixed(0)}.',
                           ),
                           if (monthlyBudget > 0)
                             _smartLine(
@@ -895,13 +839,13 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                   ? Icons.verified_outlined
                                   : Icons.warning_amber_rounded,
                               budgetRemaining >= 0
-                                  ? 'After this trip, about ₹${budgetRemaining.toStringAsFixed(0)} remains in your monthly budget.'
-                                  : 'This trip may put you ₹${budgetRemaining.abs().toStringAsFixed(0)} over your monthly budget.',
+                                  ? 'After this trip, about â‚¹${budgetRemaining.toStringAsFixed(0)} remains in your monthly budget.'
+                                  : 'This trip may put you â‚¹${budgetRemaining.abs().toStringAsFixed(0)} over your monthly budget.',
                             ),
                           if (possibleSaving > 0)
                             _smartLine(
                               Icons.savings_outlined,
-                              'Possible saving: ₹${possibleSaving.toStringAsFixed(0)} if you buy at best-seen stores.',
+                              'Possible saving: â‚¹${possibleSaving.toStringAsFixed(0)} if you buy at best-seen stores.',
                             ),
                           if (dueSuggestions.isNotEmpty)
                             _smartLine(
@@ -999,10 +943,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         TextField(
                           key: const ValueKey('shopping_items_input'),
                           controller: queryController,
-                          minLines: 1,
-                          maxLines: 5,
+                          minLines: 3,
+                          maxLines: 8,
+                          keyboardType: TextInputType.multiline,
                           onChanged: _search,
-                          onSubmitted: (_) => _addTypedQuick(),
                           decoration: InputDecoration(
                             labelText: t('shoppingItems'),
                             hintText: t('shoppingItemsHint'),
@@ -1059,10 +1003,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                               size: 18,
                             ),
                             const SizedBox(width: 6),
-                            const Expanded(
+                            Expanded(
                               child: Text(
-                                'You can type or speak your list.',
-                                style: TextStyle(
+                                'Type or speak many items together, for example: salt 1 packet, soaps dozen, paste.',
+                                style: const TextStyle(
                                   color: CartSenseColors.textMuted,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -1073,7 +1017,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         if (isBulkEntry) ...[
                           const SizedBox(height: 8),
                           Text(
-                            'CartSense will add ${_bulkPreviewCount(queryText)} products from this list.',
+                            'CartSense understood ${_bulkPreviewCount(queryText)} products. Review once and tap Add to list.',
                             style: const TextStyle(
                               color: _green,
                               fontWeight: FontWeight.w800,
@@ -1146,7 +1090,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                               style:
                                   const TextStyle(fontWeight: FontWeight.w800)),
                           subtitle: Text(
-                            '${product.category} · latest ₹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
+                            '${product.category} Â· latest â‚¹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
                           ),
                           trailing: IconButton(
                             tooltip: 'Quick add',
@@ -1191,7 +1135,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                             style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                           subtitle: Text(
-                            'Was ₹${insight.previousPrice!.toStringAsFixed(2)}, now ₹${insight.latestPrice.toStringAsFixed(2)} at ${insight.latestStore}.',
+                            'Was â‚¹${insight.previousPrice!.toStringAsFixed(2)}, now â‚¹${insight.latestPrice.toStringAsFixed(2)} at ${insight.latestStore}.',
                           ),
                           trailing: Text(
                             '+${insight.priceChangePercent.toStringAsFixed(0)}%',
@@ -1251,7 +1195,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                     CategoryAvatar(category: item.category),
                                 title: Text(item.name),
                                 subtitle: Text(
-                                  '${categoryText(languageCode, item.category)} · about ₹${item.estimatedTotal.toStringAsFixed(2)}',
+                                  '${categoryText(languageCode, item.category)} Â· about â‚¹${item.estimatedTotal.toStringAsFixed(2)}',
                                 ),
                                 trailing: IconButton(
                                   tooltip: 'Add',
@@ -1290,7 +1234,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           controlAffinity: ListTileControlAffinity.leading,
                           onChanged: (value) => _toggle(item, value == true),
                           title: Text(
-                            '${item.quantity.g} × ${item.name}',
+                            '${item.quantity.g} Ã— ${item.name}',
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
                               decoration: item.checked
@@ -1344,7 +1288,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                               CategoryAvatar(category: suggestion.category),
                           title: Text(suggestion.name),
                           subtitle: Text(
-                            '${suggestion.category} · usually ₹${suggestion.latestPrice.toStringAsFixed(2)}',
+                            '${suggestion.category} Â· usually â‚¹${suggestion.latestPrice.toStringAsFixed(2)}',
                           ),
                           trailing: IconButton(
                             tooltip: 'Add to list',
@@ -1376,17 +1320,19 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                                   const TextStyle(fontWeight: FontWeight.w800)),
                           subtitle: Text('${entry.value.length} products'),
                           trailing: Text(
-                            total > 0 ? '₹${total.toStringAsFixed(2)}' : '—',
+                            total > 0
+                                ? 'â‚¹${total.toStringAsFixed(2)}'
+                                : 'â€”',
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                           children: entry.value
                               .map((item) => ListTile(
                                     dense: true,
                                     title: Text(
-                                        '${item.quantity.g} × ${item.name}'),
+                                        '${item.quantity.g} Ã— ${item.name}'),
                                     trailing: item.bestUnitPrice > 0
                                         ? Text(
-                                            '₹${(item.quantity * item.bestUnitPrice).toStringAsFixed(2)}')
+                                            'â‚¹${(item.quantity * item.bestUnitPrice).toStringAsFixed(2)}')
                                         : const Text('No price'),
                                   ))
                               .toList(),
@@ -1544,30 +1490,30 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               : 'matched as ${item.purchasedName}';
       final actual = item.actualUnitPrice == null
           ? ''
-          : ' at ₹${item.actualUnitPrice!.toStringAsFixed(2)}';
+          : ' at â‚¹${item.actualUnitPrice!.toStringAsFixed(2)}';
       parts.add('$purchased$actual');
     }
     if (item.expectedUnitPrice > 0) {
-      parts.add('estimate ₹${item.estimatedTotal.toStringAsFixed(2)}');
+      parts.add('estimate â‚¹${item.estimatedTotal.toStringAsFixed(2)}');
     } else {
       parts.add('price needed');
     }
     if (item.salePrice != null || item.mrp != null) {
       parts.add([
         if (item.salePrice != null)
-          'shelf sale ₹${item.salePrice!.toStringAsFixed(2)}',
-        if (item.mrp != null) 'MRP ₹${item.mrp!.toStringAsFixed(2)}',
+          'shelf sale â‚¹${item.salePrice!.toStringAsFixed(2)}',
+        if (item.mrp != null) 'MRP â‚¹${item.mrp!.toStringAsFixed(2)}',
       ].join(' / '));
     }
     if (item.bestStore.isNotEmpty && item.possibleSaving > 0) {
       parts.add(
-          'save ₹${item.possibleSaving.toStringAsFixed(2)} at ${item.bestStore}');
+          'save â‚¹${item.possibleSaving.toStringAsFixed(2)} at ${item.bestStore}');
     } else if (item.bestStore.isNotEmpty) {
       parts.add('best seen at ${item.bestStore}');
     }
     if (item.remindAt != null) parts.add(_reminderText(item.remindAt!));
     if (item.note.isNotEmpty) parts.add(item.note);
-    return parts.join(' · ');
+    return parts.join(' Â· ');
   }
 
   String _shortDate(DateTime date) {
@@ -1761,9 +1707,9 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
       if (!mounted) return;
       final details = [
         if (result.salePrice != null)
-          'sale ₹${result.salePrice!.toStringAsFixed(2)}',
-        if (result.mrp != null) 'MRP ₹${result.mrp!.toStringAsFixed(2)}',
-      ].join(' · ');
+          'sale â‚¹${result.salePrice!.toStringAsFixed(2)}',
+        if (result.mrp != null) 'MRP â‚¹${result.mrp!.toStringAsFixed(2)}',
+      ].join(' Â· ');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(details.isEmpty
             ? 'Shelf label read. Review before saving.'
@@ -1902,12 +1848,12 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                       title: Text(t('shelfPriceCaptured')),
                       subtitle: Text([
                         if (shelfSalePrice != null)
-                          'Sale ₹${shelfSalePrice!.toStringAsFixed(2)}',
+                          'Sale â‚¹${shelfSalePrice!.toStringAsFixed(2)}',
                         if (shelfMrp != null)
-                          'MRP ₹${shelfMrp!.toStringAsFixed(2)}',
+                          'MRP â‚¹${shelfMrp!.toStringAsFixed(2)}',
                         if (shelfPackSize != null && shelfPackSize!.isNotEmpty)
                           shelfPackSize!,
-                      ].join(' · ')),
+                      ].join(' Â· ')),
                     ),
                   ),
                 ],
@@ -1958,7 +1904,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                         onTap: () => _selectProduct(product),
                         title: Text(product.name),
                         subtitle: Text(
-                          '${product.category} · ₹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
+                          '${product.category} Â· â‚¹${product.latestUnitPrice.toStringAsFixed(2)} at ${product.latestStore}',
                         ),
                         trailing: const Icon(Icons.chevron_right),
                       )),
@@ -1972,7 +1918,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                           const Icon(Icons.verified_outlined, color: _green),
                       title: Text('Matched to ${matched!.name}'),
                       subtitle: Text(
-                        'Latest ₹${matched!.latestUnitPrice.toStringAsFixed(2)} · best ₹${matched!.bestUnitPrice.toStringAsFixed(2)} at ${matched!.bestStore}',
+                        'Latest â‚¹${matched!.latestUnitPrice.toStringAsFixed(2)} Â· best â‚¹${matched!.bestUnitPrice.toStringAsFixed(2)} at ${matched!.bestStore}',
                       ),
                     ),
                   ),
@@ -1990,7 +1936,7 @@ class _ShoppingItemEditorState extends State<_ShoppingItemEditor> {
                           const TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(
                         labelText: t('unitPrice'),
-                        prefixText: '₹ ',
+                        prefixText: 'â‚¹ ',
                       ),
                     );
                     if (constraints.maxWidth < 330) {
@@ -2164,7 +2110,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(
             labelText: 'Maximum amount before counter',
-            prefixText: '₹ ',
+            prefixText: 'â‚¹ ',
           ),
         ),
         actions: [
@@ -2202,7 +2148,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
       item.checked = true;
       item.note = item.note.isEmpty
           ? 'Extra picked during trip.'
-          : '${item.note} · Extra picked during trip.';
+          : '${item.note} Â· Extra picked during trip.';
       extraItems.add(item);
     });
     _refreshCartComparison();
@@ -2279,7 +2225,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      '${inCart.length}/${widget.items.length} in cart · ₹${cartEstimate.toStringAsFixed(2)} estimated',
+                      '${inCart.length}/${widget.items.length} in cart Â· â‚¹${cartEstimate.toStringAsFixed(2)} estimated',
                       style: const TextStyle(color: Colors.white70),
                     ),
                   ],
@@ -2308,8 +2254,8 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                         Expanded(
                           child: Text(
                             budgetGap > 0
-                                ? 'Before counter: ₹${budgetGap.toStringAsFixed(2)} over budget'
-                                : 'Before counter: ₹${budgetGap.abs().toStringAsFixed(2)} inside budget',
+                                ? 'Before counter: â‚¹${budgetGap.toStringAsFixed(2)} over budget'
+                                : 'Before counter: â‚¹${budgetGap.abs().toStringAsFixed(2)} inside budget',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w900,
@@ -2333,7 +2279,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                           avatar:
                               const Icon(Icons.account_balance_wallet_outlined),
                           label: Text(
-                              'Trip budget ₹${tripBudget.toStringAsFixed(0)}'),
+                              'Trip budget â‚¹${tripBudget.toStringAsFixed(0)}'),
                           onPressed: _setTripBudget,
                         ),
                         ActionChip(
@@ -2356,7 +2302,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                             title: Text(item.name),
                             subtitle: Text(
                               item.estimatedTotal > 0
-                                  ? 'Saves about ₹${item.estimatedTotal.toStringAsFixed(2)}'
+                                  ? 'Saves about â‚¹${item.estimatedTotal.toStringAsFixed(2)}'
                                   : t('priceUnknown'),
                             ),
                             trailing: TextButton(
@@ -2467,7 +2413,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                   ? null
                   : () => Navigator.pop(context, true),
               icon: const Icon(Icons.document_scanner_outlined),
-              label: const Text('Checkout done — scan bill'),
+              label: const Text('Checkout done â€” scan bill'),
             ),
           ),
         ),
@@ -2572,10 +2518,10 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                         subtitle: Text(
                           store.missingItems.isEmpty
                               ? '${store.knownItems} known prices'
-                              : '${store.knownItems} known · ${store.missingItems.length} missing',
+                              : '${store.knownItems} known Â· ${store.missingItems.length} missing',
                         ),
                         trailing: Text(
-                          '₹${store.total.toStringAsFixed(0)}',
+                          'â‚¹${store.total.toStringAsFixed(0)}',
                           style: const TextStyle(
                             color: _green,
                             fontWeight: FontWeight.w900,
@@ -2586,7 +2532,7 @@ class _ShoppingTripModeScreenState extends State<_ShoppingTripModeScreen> {
                 if (comparison.overBudgetBy > 0) ...[
                   const Divider(),
                   Text(
-                    'Online estimate is ₹${comparison.overBudgetBy.toStringAsFixed(0)} over budget.',
+                    'Online estimate is â‚¹${comparison.overBudgetBy.toStringAsFixed(0)} over budget.',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ],
@@ -2661,7 +2607,7 @@ class _TripItemCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${item.quantity.g} × ${item.name}',
+                        '${item.quantity.g} Ã— ${item.name}',
                         style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w900,
@@ -2671,7 +2617,7 @@ class _TripItemCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        '${item.category}${item.expectedUnitPrice > 0 ? ' · about ₹${item.estimatedTotal.toStringAsFixed(2)}' : ''}',
+                        '${item.category}${item.expectedUnitPrice > 0 ? ' Â· about â‚¹${item.estimatedTotal.toStringAsFixed(2)}' : ''}',
                         style: const TextStyle(
                           color: CartSenseColors.textMuted,
                         ),

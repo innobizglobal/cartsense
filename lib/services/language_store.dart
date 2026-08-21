@@ -431,7 +431,7 @@ const _supplementalTranslations = {
     'addProductsToList': 'Add products to list',
     'typeOneOrPasteList': 'Type one item, or paste the full grocery list.',
     'shoppingItems': 'Shopping items',
-    'shoppingItemsHint': 'tea, coffee or tea 1, coffee 2',
+    'shoppingItemsHint': 'salt 1 packet, soaps dozen, paste',
     'speakShoppingList': 'Speak shopping list',
     'productActions': 'Product actions',
     'reminders': 'Reminders',
@@ -522,7 +522,7 @@ const _supplementalTranslations = {
     'typeOneOrPasteList':
         'एक सामान टाइप करें, या पूरी किराना लिस्ट paste करें.',
     'shoppingItems': 'शॉपिंग सामान',
-    'shoppingItemsHint': 'चाय, कॉफी या चाय 1, कॉफी 2',
+    'shoppingItemsHint': 'नमक 1 पैकेट, साबुन दर्जन, पेस्ट',
     'speakShoppingList': 'शॉपिंग लिस्ट बोलें',
     'productActions': 'सामान विकल्प',
     'reminders': 'रिमाइंडर',
@@ -614,7 +614,7 @@ const _supplementalTranslations = {
     'typeOneOrPasteList':
         'ఒక వస్తువు టైప్ చేయండి, లేదా మొత్తం గ్రోసరీ లిస్ట్ paste చేయండి.',
     'shoppingItems': 'షాపింగ్ వస్తువులు',
-    'shoppingItemsHint': 'టీ, కాఫీ లేదా టీ 1, కాఫీ 2',
+    'shoppingItemsHint': 'ఉప్పు 1 ప్యాకెట్, సబ్బులు డజన్, పేస్ట్',
     'speakShoppingList': 'షాపింగ్ లిస్ట్ మాట్లాడండి',
     'productActions': 'వస్తువు ఎంపికలు',
     'reminders': 'రిమైండర్లు',

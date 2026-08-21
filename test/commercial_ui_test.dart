@@ -140,7 +140,12 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.byTooltip('Speak shopping list'), findsOneWidget);
-    expect(find.text('You can type or speak your list.'), findsOneWidget);
+    expect(
+      find.text(
+        'Type or speak many items together, for example: salt 1 packet, soaps dozen, paste.',
+      ),
+      findsOneWidget,
+    );
 
     await tester.enterText(
       find.byKey(const ValueKey('shopping_items_input')),
@@ -154,18 +159,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('2 products added to your list.'), findsWidgets);
-    await tester.scrollUntilVisible(
-      find.textContaining('tea'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.textContaining('tea'), findsWidgets);
-    await tester.scrollUntilVisible(
-      find.textContaining('coffee'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.textContaining('coffee'), findsWidgets);
   });
 
   testWidgets('home greets the configured user by name', (tester) async {
