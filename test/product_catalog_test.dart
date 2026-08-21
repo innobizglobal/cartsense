@@ -92,4 +92,36 @@ void main() {
     expect(
         matches.map((item) => item.name), isNot(contains('Aashirvaad Atta')));
   });
+
+  test('generic shopping intents match previous purchased products for prices',
+      () {
+    final catalog = ProductCatalog.fromReceipts([
+      _bill(
+        id: 'older',
+        store: 'D-Mart',
+        date: DateTime(2026, 8, 1),
+        items: [
+          _item('Surf Excel Easy Wash 1 kg', GroceryCategory.household, 128),
+          _item('Colgate Strong Teeth Toothpaste', GroceryCategory.personalCare,
+              110),
+          _item('Tetley Classic 250g', GroceryCategory.teaCoffee, 172),
+        ],
+      ),
+      _bill(
+        id: 'newer-household',
+        store: 'Local Store',
+        date: DateTime(2026, 8, 20),
+        items: [
+          _item('Harpic Toilet Cleaner', GroceryCategory.household, 99),
+        ],
+      ),
+    ]);
+
+    expect(
+        catalog.search('surf packet').first.name, 'Surf Excel Easy Wash 1 kg');
+    expect(catalog.search('detergent').first.name, 'Surf Excel Easy Wash 1 kg');
+    expect(
+        catalog.search('paste').first.name, 'Colgate Strong Teeth Toothpaste');
+    expect(catalog.search('tea').first.name, 'Tetley Classic 250g');
+  });
 }

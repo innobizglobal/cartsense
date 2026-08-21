@@ -85,13 +85,11 @@ class ProductCatalog {
       return products.take(limit).toList();
     }
     final category = GroceryCategory.infer(query);
-    final queryTokens =
-        key.split(' ').where((token) => token.length > 1).toSet();
+    final queryTokens = _intentTokens(key);
     final ranked = <({CatalogProduct product, double score})>[];
     for (final product in products) {
       final productKey = product.key;
-      final productTokens =
-          productKey.split(' ').where((token) => token.length > 1).toSet();
+      final productTokens = _intentTokens(productKey);
       var score = 0.0;
       var matched = false;
       if (productKey == key) score += 120;
@@ -110,12 +108,11 @@ class ProductCatalog {
       }
       final tokenMatches = queryTokens.intersection(productTokens).length;
       if (tokenMatches > 0) {
-        score += tokenMatches * 24;
+        score += tokenMatches * 32;
         matched = true;
       }
       if (category != GroceryCategory.other && product.category == category) {
         score += 48;
-        matched = true;
       }
       if (!matched) continue;
       score += product.purchaseCount.clamp(0, 10) * .8;
@@ -133,7 +130,66 @@ class ProductCatalog {
     final exact = exactMatch(name);
     return exact?.category ?? GroceryCategory.infer(name);
   }
+
+  Set<String> _intentTokens(String value) {
+    final tokens = value
+        .split(' ')
+        .where((token) => token.length > 1)
+        .map(_canonicalToken)
+        .toSet();
+    final expanded = <String>{...tokens};
+    for (final token in tokens) {
+      expanded.addAll(_groceryConcepts[token] ?? const {});
+    }
+    return expanded;
+  }
+
+  String _canonicalToken(String token) => switch (token) {
+        'coffe' => 'coffee',
+        'chai' => 'tea',
+        'tetely' || 'tetly' => 'tetley',
+        'wisper' || 'nisper' => 'whisper',
+        'panee' => 'paneer',
+        'sunfl' => 'sunflower',
+        'surfexcel' => 'surf',
+        'colgate' => 'toothpaste',
+        'paste' => 'toothpaste',
+        'soaps' => 'soap',
+        'packets' || 'packet' || 'packs' => 'pack',
+        _ => token,
+      };
 }
+
+const _groceryConcepts = <String, Set<String>>{
+  'tea': {'tea', 'chai', 'tetley', 'tata', 'red', 'label', 'taj', 'wagh'},
+  'chai': {'tea'},
+  'tetley': {'tea'},
+  'tetly': {'tea'},
+  'tetely': {'tea'},
+  'coffee': {'coffee', 'bru', 'nescafe', 'continental', 'sunrise'},
+  'bru': {'coffee'},
+  'nescafe': {'coffee'},
+  'toothpaste': {'toothpaste', 'paste', 'tooth', 'colgate', 'pepsodent'},
+  'colgate': {'toothpaste'},
+  'detergent': {'detergent', 'surf', 'rin', 'ariel', 'washing', 'powder'},
+  'surf': {'detergent', 'washing', 'powder'},
+  'rin': {'detergent', 'washing', 'powder'},
+  'ariel': {'detergent', 'washing', 'powder'},
+  'soap': {'soap', 'dove', 'lux', 'santoor', 'cinthol', 'pears'},
+  'oil': {'oil', 'sunflower', 'gold', 'drop', 'fortune', 'freedom', 'sundrop'},
+  'sunflower': {'oil'},
+  'salt': {'salt'},
+  'milk': {'milk', 'heritage', 'amul', 'nandini'},
+  'paneer': {'paneer', 'panee', 'heritage', 'amul'},
+  'grape': {'grape', 'grapes', 'fruit'},
+  'grapes': {'grape', 'fruit'},
+  'dal': {'dal', 'dhal', 'toor', 'moong', 'urad', 'chana', 'pulse'},
+  'dhal': {'dal'},
+  'toor': {'dal'},
+  'atta': {'atta', 'flour', 'aashirvaad'},
+  'pads': {'pads', 'sanitary', 'whisper', 'stayfree', 'sofy'},
+  'whisper': {'pads', 'sanitary'},
+};
 
 class _CatalogObservation {
   const _CatalogObservation({

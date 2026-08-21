@@ -87,4 +87,31 @@ void main() {
     expect(entries[4].name, 'Surf Detergent');
     expect(entries[4].category, GroceryCategory.household);
   });
+
+  test('uses previous receipt products for approximate shopping prices', () {
+    final catalog = ProductCatalog.fromReceipts([
+      _bill(
+        id: 'past-prices',
+        store: 'D-Mart',
+        date: DateTime(2026, 8, 10),
+        items: [
+          _item('Surf Excel Easy Wash 1 kg', GroceryCategory.household, 128),
+          _item('Colgate Strong Teeth Toothpaste', GroceryCategory.personalCare,
+              110),
+          _item('Tetley Classic 250g', GroceryCategory.teaCoffee, 172),
+        ],
+      ),
+    ]);
+    final parser = SmartGroceryInputParser(catalog);
+
+    final entries = parser.parse('surf packet 1, paste 1, tea 1');
+
+    expect(entries.map((entry) => entry.name), [
+      'Surf Excel Easy Wash 1 kg',
+      'Colgate Strong Teeth Toothpaste',
+      'Tetley Classic 250g',
+    ]);
+    expect(entries.first.matchedProduct?.latestUnitPrice, 128);
+    expect(entries.first.note, contains('Matched from your past receipts'));
+  });
 }
